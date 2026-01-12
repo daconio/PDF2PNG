@@ -52,3 +52,55 @@ export const renderPageToBlob = async (
         }, 'image/png');
     });
 };
+
+export const imagesToPDF = async (files: File[]): Promise<Blob> => {
+    // @ts-ignore
+    const { jsPDF } = await import('jspdf');
+    const doc = new jsPDF();
+
+    for (let i = 0; i < files.length; i++) {
+        const file = files[i];
+        const imageData = await new Promise<string>((resolve) => {
+            const reader = new FileReader();
+            reader.onload = (e) => resolve(e.target?.result as string);
+            reader.readAsDataURL(file);
+        });
+
+        // Add a new page if it's not the first one
+        if (i > 0) {
+            doc.addPage();
+        }
+
+        // Get page dimensions
+        const pageWidth = doc.internal.pageSize.getWidth();
+        const pageHeight = doc.internal.pageSize.getHeight();
+
+        // Find image dimensions to maintain aspect ratio
+        const img = new Image();
+        img.src = imageData;
+        await new Promise((resolve) => {
+            img.onload = resolve;
+        });
+
+        const imgWidth = img.width;
+        const imgHeight = img.height;
+        const ratio = imgWidth / imgHeight;
+
+        let finalWidth = pageWidth;
+        let finalHeight = pageWidth / ratio;
+
+        if (finalHeight > pageHeight) {
+            finalHeight = pageHeight;
+            finalWidth = pageHeight * ratio;
+        }
+
+        // Center on page
+        const x = (pageWidth - finalWidth) / 2;
+        const y = (pageHeight - finalHeight) / 2;
+
+        doc.addImage(imageData, 'PNG', x, y, finalWidth, finalHeight);
+    }
+
+    return doc.output('blob');
+};
+
