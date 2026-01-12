@@ -4,7 +4,6 @@ import { useState, useCallback } from 'react';
 import { useDropzone } from 'react-dropzone';
 import { loadPDF, renderPageToBlob } from '@/lib/pdf-processor';
 import { Upload, FileText, CheckCircle, Loader2, AlertCircle, Image as ImageIcon, FolderInput, Folder, ChevronRight } from 'lucide-react';
-import { useEffect } from 'react';
 import type { PDFDocumentProxy } from 'pdfjs-dist';
 
 declare global {
