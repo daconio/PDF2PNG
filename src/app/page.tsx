@@ -195,14 +195,14 @@ export default function Home() {
         <div className="flex p-1 rounded-2xl glass-panel border-[--card-border] w-full max-w-md">
           <button
             onClick={() => { setMode('pdf2png'); setPages([]); setPdfFile(null); setImageFiles([]); setUploadError(null); }}
-            className={`flex-1 py-3 px-6 rounded-xl transition-all duration-300 flex items-center justify-center gap-2 ${mode === 'pdf2png' ? 'bg-gradient-to-r from-[--primary] to-[--secondary] text-white shadow-lg' : 'hover:bg-[rgba(255,255,255,0.05)] opacity-60'}`}
+            className={`flex-1 py-3 px-6 rounded-xl transition-all duration-300 flex items-center justify-center gap-2 ${mode === 'pdf2png' ? 'bg-gradient-to-r from-[--primary] to-[--secondary] text-white shadow-lg font-semibold' : 'hover:bg-[rgba(255,255,255,0.05)] opacity-80'}`}
           >
             <FileText className="w-5 h-5" />
             PDF to PNG
           </button>
           <button
             onClick={() => { setMode('png2pdf'); setPages([]); setPdfFile(null); setImageFiles([]); setUploadError(null); }}
-            className={`flex-1 py-3 px-6 rounded-xl transition-all duration-300 flex items-center justify-center gap-2 ${mode === 'png2pdf' ? 'bg-gradient-to-r from-[--primary] to-[--secondary] text-white shadow-lg' : 'hover:bg-[rgba(255,255,255,0.05)] opacity-60'}`}
+            className={`flex-1 py-3 px-6 rounded-xl transition-all duration-300 flex items-center justify-center gap-2 ${mode === 'png2pdf' ? 'bg-gradient-to-r from-[--primary] to-[--secondary] text-white shadow-lg font-semibold' : 'hover:bg-[rgba(255,255,255,0.05)] opacity-80'}`}
           >
             <ImageIcon className="w-5 h-5" />
             PNG to PDF
@@ -212,21 +212,24 @@ export default function Home() {
         <div className="w-full flex flex-col items-center gap-8">
           {/* Folder Selection (Native) */}
           <div className="w-full max-w-2xl flex flex-col gap-2">
-            <label className="text-sm text-[--foreground] opacity-70 flex items-center gap-2">
-              <FolderInput className="w-4 h-4" />
-              Auto-Save Folder {dirHandle ? '' : '(Optional - otherwise files download individually)'}
+            <label className="text-sm font-medium text-[--foreground] opacity-90 flex items-center gap-2">
+              <FolderInput className="w-4 h-4 text-[--secondary]" />
+              Auto-Save Folder
+              <span className="text-xs font-normal opacity-70 ml-1">
+                {dirHandle ? '' : '(Optional - otherwise files download individually)'}
+              </span>
             </label>
             <button
               onClick={handleSelectFolder}
               className={`
-                w-full p-4 rounded-xl glass-panel border-[--card-border] 
+                w-full p-5 rounded-xl glass-panel border-[--card-border] 
                 flex items-center justify-between
-                hover:bg-[rgba(255,255,255,0.05)] transition-colors text-left
-                ${dirHandle ? 'border-[--success]' : ''}
+                hover:bg-[rgba(255,255,255,0.08)] transition-all text-left
+                ${dirHandle ? 'border-[--success] shadow-[0_0_15px_rgba(34,197,94,0.1)]' : ''}
               `}
               disabled={isProcessing}
             >
-              <span className={`flex items-center gap-2 ${dirHandle ? 'text-[--success]' : 'opacity-50'}`}>
+              <span className={`flex items-center gap-3 font-medium ${dirHandle ? 'text-[--success]' : 'text-[--foreground]'}`}>
                 {dirHandle ? (
                   <>
                     <Folder className="w-5 h-5" />
@@ -234,10 +237,13 @@ export default function Home() {
                     Connected: {dirHandle.name}
                   </>
                 ) : (
-                  'Connect to a local folder for automatic saving'
+                  <>
+                    <Folder className="w-5 h-5 opacity-70" />
+                    <span className="opacity-80">Connect to a local folder for automatic saving</span>
+                  </>
                 )}
               </span>
-              {dirHandle ? <CheckCircle className="w-5 h-5 text-[--success]" /> : <ChevronRight className="w-5 h-5 opacity-50" />}
+              {dirHandle ? <CheckCircle className="w-5 h-5 text-[--success]" /> : <ChevronRight className="w-5 h-5 opacity-40" />}
             </button>
           </div>
 
@@ -257,6 +263,7 @@ export default function Home() {
               <div className={`
                   p-6 rounded-full bg-gradient-to-br from-[--primary] to-[--secondary]
                   ${isDragActive || isProcessing ? 'animate-pulse-glow' : ''}
+                  shadow-lg
               `}>
                 {isProcessing ? (
                   <Loader2 className="w-10 h-10 text-white animate-spin" />
@@ -265,13 +272,13 @@ export default function Home() {
                 )}
               </div>
 
-              <div className="space-y-2">
-                <p className="text-2xl font-semibold">
+              <div className="space-y-3">
+                <p className="text-2xl font-bold tracking-tight">
                   {isProcessing ? 'Processing...' : isDragActive ? 'Drop it here!' : mode === 'pdf2png' ? 'Upload PDF to Extract PNGs' : 'Upload Images to Merge into PDF'}
                 </p>
-                <p className="text-sm opacity-50">
+                <p className="text-base text-[--foreground] opacity-80 font-medium">
                   {mode === 'pdf2png'
-                    ? (pdfFile ? `Selected: ${pdfFile.name}` : 'PDF files only')
+                    ? (pdfFile ? `Selected: ${pdfFile.name}` : 'Drag & Drop PDF files here')
                     : (imageFiles.length > 0 ? `${imageFiles.length} images selected` : 'PNG, JPG, BMP, etc.')
                   }
                 </p>

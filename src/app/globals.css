@@ -3,8 +3,8 @@
 @tailwind utilities;
 
 :root {
-  --background: #0a0a0a;
-  --foreground: #ededed;
+  --background: #0f0f0f;
+  --foreground: #ffffff;
   
   --primary: #7c3aed; /* Violet/Purple neon */
   --primary-glow: rgba(124, 58, 237, 0.5);
