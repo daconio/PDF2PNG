@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { useDropzone } from 'react-dropzone';
 import { loadPDF, renderPageToBlob, imagesToPDF, createZipBlob } from '@/lib/pdf-processor';
 import { Upload, FileText, CheckCircle, Loader2, AlertCircle, Image as ImageIcon, FolderInput, Folder, ChevronRight, Download, Play, X, GripVertical } from 'lucide-react';
@@ -55,6 +55,8 @@ const translations = {
     howToUse: "How to Use",
     howToPdfContent: "Upload a PDF, select pages (optional), and extract high-quality PNGs instantly.",
     howToPngContent: "Upload multiple images, reorder them via drag & drop, and merge into a single PDF.",
+    previewTitle: "Preview (First 4 Pages)",
+    loadingPreviews: "Generating thumbnails..."
   },
   ko: {
     title: "PDF 스위트",
@@ -87,6 +89,8 @@ const translations = {
     howToUse: "사용 방법",
     howToPdfContent: "PDF를 업로드하고 원하는 페이지를 선택해 고화질 이미지로 변환하세요.",
     howToPngContent: "여러 이미지를 업로드하고 드래그 앤 드롭으로 순서를 바꿔 PDF로 병합하세요.",
+    previewTitle: "미리보기 (첫 4페이지)",
+    loadingPreviews: "썸네일 생성 중..."
   }
 };
 
@@ -96,6 +100,8 @@ export default function Home() {
   const t = translations[lang];
   const [mode, setMode] = useState<'pdf2png' | 'png2pdf'>('pdf2png');
   const [pdfFile, setPdfFile] = useState<File | null>(null);
+  const [previewUrls, setPreviewUrls] = useState<string[]>([]);
+  const [isPreviewLoading, setIsPreviewLoading] = useState(false);
   const [imageFiles, setImageFiles] = useState<File[]>([]);
   const [isProcessing, setIsProcessing] = useState(false);
   const [pages, setPages] = useState<ProcessedPage[]>([]);
@@ -111,6 +117,48 @@ export default function Home() {
       coordinateGetter: sortableKeyboardCoordinates,
     })
   );
+
+
+  // Preview Generation Effect
+
+  // We need to inject useEffect at the top level imports or just modify this block
+  // Let's add the effect hook here
+  useEffect(() => {
+    if (!pdfFile) {
+      setPreviewUrls([]);
+      return;
+    };
+
+    let active = true;
+    const generatePreviews = async () => {
+      setIsPreviewLoading(true);
+      try {
+        const pdf = await loadPDF(pdfFile);
+        const limit = Math.min(pdf.numPages, 4); // Preview first 4 pages
+        const urls: string[] = [];
+
+        for (let i = 1; i <= limit; i++) {
+          if (!active) break;
+          const blob = await renderPageToBlob(pdf, i);
+          if (blob) {
+            urls.push(URL.createObjectURL(blob));
+          }
+        }
+        if (active) setPreviewUrls(urls);
+      } catch (err) {
+        console.error("Preview generation failed", err);
+      } finally {
+        if (active) setIsPreviewLoading(false);
+      }
+    };
+
+    generatePreviews();
+
+    return () => {
+      active = false;
+      previewUrls.forEach(url => URL.revokeObjectURL(url));
+    };
+  }, [pdfFile]);
 
   const onDrop = useCallback(async (acceptedFiles: File[]) => {
     if (acceptedFiles.length === 0) return;
@@ -450,10 +498,10 @@ export default function Home() {
           <div
             {...getRootProps()}
             className={`
-              w-full max-w-2xl min-h-[300px] flex flex-col items-center justify-center 
+              w-full max-w-2xl min-h-[400px] flex flex-col items-center justify-center 
               transition-all duration-200 border-[3px] border-dashed border-black
-              bg-white relative shadow-[8px_8px_0px_0px_rgba(0,0,0,0.1)]
-              ${isDragActive ? 'bg-[--secondary] border-solid scale-[1.01]' : 'hover:bg-gray-50'}
+              bg-white relative shadow-[8px_8px_0px_0px_rgba(0,0,0,0.1)] p-10
+              ${isDragActive ? 'bg-[--secondary] border-solid scale-[1.01]' : 'hover:bg-gray-50 hover:border-gray-800'}
               ${isProcessing ? 'opacity-50 cursor-not-allowed' : ''}
               ${(mode === 'pdf2png' && !!pdfFile) || (mode === 'png2pdf' && imageFiles.length > 0) ? 'cursor-default border-solid shadow-[8px_8px_0px_0px_#000]' : 'cursor-pointer'}
             `}
@@ -517,6 +565,30 @@ export default function Home() {
                           <p className="text-xs text-black font-mono">{(pdfFile.size / 1024 / 1024).toFixed(2)} MB</p>
                         </div>
                       </div>
+
+                      {/* PDF Preview Grid */}
+                      {!pages.length && (
+                        <div className="w-full bg-gray-50 border-[2px] border-black border-dashed p-4 rounded-lg">
+                          <p className="text-xs font-bold uppercase mb-2 text-gray-500">{t.previewTitle}</p>
+                          {isPreviewLoading ? (
+                            <div className="flex items-center justify-center py-8">
+                              <Loader2 className="w-6 h-6 animate-spin opacity-50" />
+                              <span className="ml-2 text-xs font-mono">{t.loadingPreviews}</span>
+                            </div>
+                          ) : (
+                            <div className="grid grid-cols-2 lg:grid-cols-4 gap-2">
+                              {previewUrls.map((url, idx) => (
+                                <div key={idx} className="aspect-[1/1.4] bg-white border border-black shadow-[2px_2px_0px_0px_rgba(0,0,0,0.1)] overflow-hidden relative group">
+                                  <img src={url} alt={`Preview ${idx + 1}`} className="w-full h-full object-contain" />
+                                  <div className="absolute bottom-0 right-0 bg-black text-white text-[10px] px-1 font-mono">
+                                    {idx + 1}
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      )}
 
                       {!pages.length && (
                         <div className="flex flex-col gap-2 text-left">
