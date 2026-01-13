@@ -267,33 +267,30 @@ export default function Home() {
 
   return (
     <main
-      className="flex min-h-screen flex-col items-center justify-start py-12 px-4 md:py-20 md:px-24 relative overflow-hidden"
+      className="flex min-h-screen flex-col items-center justify-start py-12 px-4 md:py-20 md:px-24 relative overflow-hidden bg-[--background] text-[--foreground]"
       style={{
-        backgroundImage: `linear-gradient(to bottom, rgba(13, 17, 23, 0.6), rgba(13, 17, 23, 0.9)), url('${basePath}/hero-bg.jpg')`,
-        backgroundSize: 'cover',
-        backgroundPosition: 'center',
-        backgroundAttachment: 'fixed'
+        backgroundImage: 'radial-gradient(circle at 1px 1px, #e5e5e5 1px, transparent 0)',
+        backgroundSize: '20px 20px'
       }}
     >
       <div className="z-10 w-full max-w-4xl flex flex-col items-center gap-10">
 
         {/* Header content with mountaineering theme context */}
-        <div className="text-center space-y-6 animate-in fade-in zoom-in duration-1000">
-          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-[rgba(251,146,60,0.1)] border border-[rgba(251,146,60,0.2)] text-[--primary] text-xs font-bold uppercase tracking-widest mb-2">
+        <div className="text-center space-y-6">
+          <div className="inline-flex items-center gap-2 px-3 py-1 bg-[--secondary] border-[3px] border-black text-black text-xs font-bold uppercase tracking-widest mb-2 shadow-[4px_4px_0px_0px_#000]">
             <CheckCircle className="w-3 h-3" />
             Scaling New Heights in PDF Productivity
           </div>
-          <h1 className="text-6xl md:text-8xl font-black bg-clip-text text-transparent bg-gradient-to-b from-white via-white to-[--primary] drop-shadow-2xl">
+          <h1 className="text-6xl md:text-8xl font-black text-black drop-shadow-[5px_5px_0px_rgba(0,0,0,0.2)]">
             PDF SUITE
           </h1>
-          <p className="text-[--foreground] opacity-90 text-lg md:text-2xl max-w-2xl mx-auto font-medium leading-relaxed">
-            Reach the summit of document management. <br className="hidden md:block" />
+          <p className="text-[--foreground] text-lg md:text-2xl max-w-2xl mx-auto font-bold leading-relaxed border-b-4 border-[--primary] inline-block pb-2">
             Instant PDF & Image conversion, right in your browser.
           </p>
         </div>
 
         {/* Mode Switcher */}
-        <div className="flex p-1 rounded-2xl glass-panel border-[--card-border] w-full max-w-md">
+        <div className="flex p-2 bg-white border-[3px] border-black shadow-[6px_6px_0px_0px_#000] w-full max-w-md gap-2">
           <button
             onClick={() => {
               setMode('pdf2png');
@@ -304,14 +301,14 @@ export default function Home() {
               setProcessedBlobs([]);
               setPageRange('');
             }}
-            className={`flex-1 py-3 px-6 rounded-xl transition-all duration-300 flex items-center justify-center gap-2 ${mode === 'pdf2png' ? 'bg-gradient-to-r from-[--primary] to-[--secondary] text-white shadow-lg font-semibold' : 'hover:bg-[rgba(255,255,255,0.05)] opacity-80'}`}
+            className={`flex-1 py-3 px-6 transition-all duration-200 flex items-center justify-center gap-2 font-bold border-[3px] border-black ${mode === 'pdf2png' ? 'bg-[--primary] text-white shadow-[2px_2px_0px_0px_#000] translate-x-[-1px] translate-y-[-1px]' : 'bg-gray-100 text-black hover:bg-gray-200'}`}
           >
             <FileText className="w-5 h-5" />
             PDF to PNG
           </button>
           <button
             onClick={() => { setMode('png2pdf'); setPages([]); setPdfFile(null); setImageFiles([]); setUploadError(null); setProcessedBlobs([]); }}
-            className={`flex-1 py-3 px-6 rounded-xl transition-all duration-300 flex items-center justify-center gap-2 ${mode === 'png2pdf' ? 'bg-gradient-to-r from-[--primary] to-[--secondary] text-white shadow-lg font-semibold' : 'hover:bg-[rgba(255,255,255,0.05)] opacity-80'}`}
+            className={`flex-1 py-3 px-6 transition-all duration-200 flex items-center justify-center gap-2 font-bold border-[3px] border-black ${mode === 'png2pdf' ? 'bg-[--primary] text-white shadow-[2px_2px_0px_0px_#000] translate-x-[-1px] translate-y-[-1px]' : 'bg-gray-100 text-black hover:bg-gray-200'}`}
           >
             <ImageIcon className="w-5 h-5" />
             PNG to PDF
@@ -331,14 +328,14 @@ export default function Home() {
             <button
               onClick={handleSelectFolder}
               className={`
-                w-full p-5 rounded-xl glass-panel border-[--card-border] 
+                w-full p-5 bg-white border-[3px] border-black shadow-[4px_4px_0px_0px_#000]
                 flex items-center justify-between
-                hover:bg-[rgba(255,255,255,0.08)] transition-all text-left
-                ${dirHandle ? 'border-[--success] shadow-[0_0_15px_rgba(34,197,94,0.1)]' : ''}
+                hover:translate-x-[2px] hover:translate-y-[2px] hover:shadow-[2px_2px_0px_0px_#000] transition-all text-left
+                ${dirHandle ? 'bg-[--secondary]' : ''}
               `}
               disabled={isProcessing}
             >
-              <span className={`flex items-center gap-3 font-medium ${dirHandle ? 'text-[--success]' : 'text-[--foreground]'}`}>
+              <span className={`flex items-center gap-3 font-bold text-black`}>
                 {dirHandle ? (
                   <>
                     <Folder className="w-5 h-5" />
@@ -347,12 +344,12 @@ export default function Home() {
                   </>
                 ) : (
                   <>
-                    <Folder className="w-5 h-5 opacity-70" />
-                    <span className="opacity-80">Connect to a local folder for automatic saving</span>
+                    <Folder className="w-5 h-5 opacity-100" />
+                    <span className="opacity-100">Connect to a local folder for automatic saving</span>
                   </>
                 )}
               </span>
-              {dirHandle ? <CheckCircle className="w-5 h-5 text-[--success]" /> : <ChevronRight className="w-5 h-5 opacity-40" />}
+              {dirHandle ? <CheckCircle className="w-6 h-6 text-black" /> : <ChevronRight className="w-6 h-6 text-black" />}
             </button>
           </div>
 
@@ -361,11 +358,11 @@ export default function Home() {
             {...getRootProps()}
             className={`
               w-full max-w-2xl min-h-[300px] flex flex-col items-center justify-center 
-              rounded-3xl transition-all duration-300 border-2 border-dashed
-              glass-panel relative
-              ${isDragActive ? 'border-[--primary] scale-[1.02] shadow-[0_0_30px_var(--primary-glow)]' : 'border-[--card-border] hover:border-[--secondary] hover:shadow-[0_0_20px_var(--secondary-glow)]'}
+              transition-all duration-200 border-[3px] border-dashed border-black
+              bg-white relative shadow-[8px_8px_0px_0px_rgba(0,0,0,0.1)]
+              ${isDragActive ? 'bg-[--secondary] border-solid scale-[1.01]' : 'hover:bg-gray-50'}
               ${isProcessing ? 'opacity-50 cursor-not-allowed' : ''}
-              ${(mode === 'pdf2png' && !!pdfFile) || (mode === 'png2pdf' && imageFiles.length > 0) ? 'cursor-default' : 'cursor-pointer'}
+              ${(mode === 'pdf2png' && !!pdfFile) || (mode === 'png2pdf' && imageFiles.length > 0) ? 'cursor-default border-solid shadow-[8px_8px_0px_0px_#000]' : 'cursor-pointer'}
             `}
           >
             <input {...getInputProps()} />
@@ -392,14 +389,14 @@ export default function Home() {
               {!pdfFile && imageFiles.length === 0 ? (
                 <>
                   <div className={`
-                        p-6 rounded-full bg-gradient-to-br from-[--primary] to-[--secondary]
-                        ${isDragActive || isProcessing ? 'animate-pulse-glow' : ''}
-                        shadow-lg
+                        p-6 bg-black border-[3px] border-black text-white
+                        ${isDragActive || isProcessing ? 'animate-bounce' : ''}
+                        shadow-[4px_4px_0px_0px_rgba(0,0,0,0.3)]
                     `}>
                     {isProcessing ? (
-                      <Loader2 className="w-10 h-10 text-white animate-spin" />
+                      <Loader2 className="w-12 h-12 text-white animate-spin" />
                     ) : (
-                      <Upload className="w-10 h-10 text-white" />
+                      <Upload className="w-12 h-12 text-white" />
                     )}
                   </div>
 
@@ -420,32 +417,32 @@ export default function Home() {
                 <div className="w-full flex flex-col items-center gap-6">
                   {mode === 'pdf2png' && pdfFile && (
                     <div className="w-full max-w-md space-y-4">
-                      <div className="flex items-center justify-center gap-3 p-4 rounded-xl bg-white/5 border border-white/10">
-                        <FileText className="w-8 h-8 text-[--primary]" />
+                      <div className="flex items-center justify-center gap-3 p-4 bg-[--secondary] border-[3px] border-black shadow-[4px_4px_0px_0px_#000]">
+                        <FileText className="w-8 h-8 text-black" />
                         <div className="text-left">
-                          <p className="font-bold truncate max-w-[200px]">{pdfFile.name}</p>
-                          <p className="text-xs opacity-60">{(pdfFile.size / 1024 / 1024).toFixed(2)} MB</p>
+                          <p className="font-bold text-black truncate max-w-[200px]">{pdfFile.name}</p>
+                          <p className="text-xs text-black font-mono">{(pdfFile.size / 1024 / 1024).toFixed(2)} MB</p>
                         </div>
                       </div>
 
                       {!pages.length && (
                         <div className="flex flex-col gap-2 text-left">
-                          <label className="text-sm font-medium opacity-80">Page Range (Optional)</label>
+                          <label className="text-sm font-bold border-b-2 border-black inline-block w-fit">Page Range (Optional)</label>
                           <input
                             type="text"
                             placeholder="e.g. 1-5, 8, 11-13"
                             value={pageRange}
                             onChange={(e) => setPageRange(e.target.value)}
-                            className="w-full px-4 py-3 rounded-xl bg-black/20 border border-white/10 focus:border-[--primary] focus:ring-1 focus:ring-[--primary] outline-none transition-all"
+                            className="w-full px-4 py-3 bg-white border-[3px] border-black focus:shadow-[4px_4px_0px_0px_#000] focus:translate-x-[-2px] focus:translate-y-[-2px] outline-none transition-all font-mono placeholder:text-gray-400"
                           />
-                          <p className="text-xs opacity-50">Leave empty to process all pages</p>
+                          <p className="text-xs font-bold text-gray-500">Leave empty to process all pages</p>
                         </div>
                       )}
 
                       {!pages.length && (
                         <button
                           onClick={(e) => { e.stopPropagation(); handleStartPdfConversion(); }}
-                          className="w-full py-4 rounded-xl bg-gradient-to-r from-[--primary] to-[--secondary] text-white font-bold text-lg shadow-lg hover:scale-[1.01] active:scale-[0.99] transition-all flex items-center justify-center gap-2"
+                          className="w-full py-4 bg-[--primary] border-[3px] border-black text-white font-black text-lg uppercase tracking-wider shadow-[6px_6px_0px_0px_#000] hover:translate-x-[2px] hover:translate-y-[2px] hover:shadow-[4px_4px_0px_0px_#000] active:translate-x-[6px] active:translate-y-[6px] active:shadow-none transition-all flex items-center justify-center gap-2"
                         >
                           <Play className="w-5 h-5" fill="currentColor" />
                           Start Separation
@@ -471,7 +468,7 @@ export default function Home() {
               <button
                 onClick={handleConvertImagesToPdf}
                 disabled={isProcessing}
-                className="w-full py-4 rounded-xl bg-gradient-to-r from-[--primary] to-[--secondary] text-white font-bold text-xl shadow-lg hover:scale-[1.01] active:scale-[0.99] transition-all disabled:opacity-50"
+                className="w-full py-4 bg-[--primary] border-[3px] border-black text-white font-black text-xl uppercase tracking-wider shadow-[6px_6px_0px_0px_#000] hover:translate-x-[2px] hover:translate-y-[2px] hover:shadow-[4px_4px_0px_0px_#000] active:translate-x-[6px] active:translate-y-[6px] active:shadow-none transition-all disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {isProcessing ? 'Generating PDF...' : 'Merge to PDF & Download'}
               </button>
@@ -497,7 +494,7 @@ export default function Home() {
                     <button
                       onClick={handleDownloadZip}
                       disabled={isProcessing}
-                      className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-[rgba(251,146,60,0.1)] border border-[rgba(251,146,60,0.2)] text-[--primary] text-sm font-bold hover:bg-[rgba(251,146,60,0.2)] transition-all disabled:opacity-50"
+                      className="flex items-center gap-2 px-4 py-2 bg-white border-[2px] border-black text-black text-sm font-bold shadow-[3px_3px_0px_0px_#000] hover:translate-x-[1px] hover:translate-y-[1px] hover:shadow-[2px_2px_0px_0px_#000] active:shadow-none active:translate-x-[3px] active:translate-y-[3px] transition-all"
                     >
                       <Download className="w-4 h-4" />
                       Download all ZIP
@@ -513,7 +510,7 @@ export default function Home() {
                 {pages.map((page) => (
                   <div
                     key={page.pageNumber}
-                    className="glass-panel p-4 rounded-xl flex items-center justify-between group hover:bg-[rgba(255,255,255,0.08)] transition-colors"
+                    className="bg-white border-[3px] border-black p-4 shadow-[4px_4px_0px_0px_#000] flex items-center justify-between group transition-all hover:translate-x-[2px] hover:translate-y-[2px] hover:shadow-[2px_2px_0px_0px_#000]"
                   >
                     <div className="flex items-center gap-4">
                       <div className="w-10 h-10 rounded-lg bg-[rgba(255,255,255,0.1)] flex items-center justify-center">
@@ -528,8 +525,8 @@ export default function Home() {
                     <div>
                       {page.status === 'completed' && <CheckCircle className="w-6 h-6 text-[--success] animate-in zoom-in" />}
                       {page.status === 'error' && <AlertCircle className="w-6 h-6 text-[--error]" />}
-                      {(page.status === 'processing' || page.status === 'saving') && <Loader2 className="w-5 h-5 animate-spin opacity-50" />}
-                      {page.status === 'pending' && <div className="w-3 h-3 rounded-full bg-[rgba(255,255,255,0.2)]" />}
+                      {(page.status === 'processing' || page.status === 'saving') && <Loader2 className="w-5 h-5 animate-spin text-black" />}
+                      {page.status === 'pending' && <div className="w-3 h-3 rounded-full bg-gray-300 border border-black" />}
                     </div>
                   </div>
                 ))}
@@ -568,10 +565,10 @@ export default function Home() {
                         const input = document.querySelector('input[type="file"]') as HTMLInputElement;
                         if (input) input.click();
                       }}
-                      className="aspect-square rounded-xl border-2 border-dashed border-[--card-border] hover:border-[--primary] flex flex-col items-center justify-center cursor-pointer transition-colors group"
+                      className="aspect-square bg-white border-[3px] border-black shadow-[4px_4px_0px_0px_#000] flex flex-col items-center justify-center cursor-pointer transition-all hover:translate-x-[2px] hover:translate-y-[2px] hover:shadow-[2px_2px_0px_0px_#000] group"
                     >
-                      <Upload className="w-6 h-6 opacity-50 group-hover:opacity-100 group-hover:text-[--primary] transition-all" />
-                      <span className="text-xs mt-2 opacity-50 group-hover:opacity-100">Add More</span>
+                      <Upload className="w-8 h-8 text-black opacity-50 group-hover:opacity-100 transition-opacity" />
+                      <span className="text-xs font-bold mt-2 text-black opacity-50 group-hover:opacity-100">ADD MORE</span>
                     </div>
                   </div>
                 </SortableContext>
