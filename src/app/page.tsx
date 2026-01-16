@@ -505,7 +505,7 @@ export default function Home() {
             `}
           >
             {isDragActive && (
-              <div className="absolute inset-0 z-50 flex items-center justify-center bg-[--secondary] bg-opacity-90 backdrop-blur-sm border-[5px] border-black animate-in fade-in zoom-in duration-200">
+              <div className="absolute inset-0 z-50 flex items-center justify-center bg-[--secondary] bg-opacity-90 backdrop-blur-sm border-[5px] border-black animate-in fade-in zoom-in duration-200 pointer-events-none">
                 <div className="text-center transform scale-110">
                   <span className="text-8xl block mb-4 animate-bounce">📥</span>
                   <p className="text-4xl font-black uppercase text-black drop-shadow-[2px_2px_0px_white]">{t.dropHere}</p>
