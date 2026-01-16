@@ -531,6 +531,7 @@ export default function Home() {
                         p-6 bg-black border-[3px] border-black text-white
                         ${isDragActive || isProcessing ? 'animate-bounce' : ''}
                         shadow-[4px_4px_0px_0px_rgba(0,0,0,0.3)]
+                    `}>
                     {isProcessing ? (
                       <span className="text-4xl animate-spin block">⏳</span>
                     ) : (
