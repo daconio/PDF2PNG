@@ -504,6 +504,14 @@ export default function Home() {
               ${(mode === 'pdf2png' && !!pdfFile) || (mode === 'png2pdf' && imageFiles.length > 0) ? 'cursor-default border-solid shadow-[8px_8px_0px_0px_#000]' : 'cursor-pointer'}
             `}
           >
+            {isDragActive && (
+              <div className="absolute inset-0 z-50 flex items-center justify-center bg-[--secondary] bg-opacity-90 backdrop-blur-sm border-[5px] border-black animate-in fade-in zoom-in duration-200">
+                <div className="text-center transform scale-110">
+                  <span className="text-8xl block mb-4 animate-bounce">📥</span>
+                  <p className="text-4xl font-black uppercase text-black drop-shadow-[2px_2px_0px_white]">{t.dropHere}</p>
+                </div>
+              </div>
+            )}
             <input {...getInputProps()} />
 
             {/* Clear Button */}
