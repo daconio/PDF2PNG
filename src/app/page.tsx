@@ -343,12 +343,13 @@ export default function Home() {
       } else {
         // Fallback or automatic download? 
         // For static GH Pages, we'll just download if no folder selected
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = filename;
-        a.click();
-        URL.revokeObjectURL(url);
+        // REMOVED AUTO DOWNLOAD to prevent "infinite" download flood. User should use ZIP download.
+        // const url = URL.createObjectURL(blob);
+        // const a = document.createElement('a');
+        // a.href = url;
+        // a.download = filename;
+        // a.click();
+        // URL.revokeObjectURL(url);
         setProcessedBlobs(prev => [...prev, { filename, blob }]);
         updatePageStatus(pageNumber, 'completed', filename);
       }
