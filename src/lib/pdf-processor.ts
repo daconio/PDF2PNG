@@ -5,7 +5,8 @@ const getPdfJs = async () => {
     // @ts-ignore
     const pdfjs = await import('pdfjs-dist');
     if (typeof window !== 'undefined' && !pdfjs.GlobalWorkerOptions.workerSrc) {
-        const basePath = process.env.NEXT_PUBLIC_BASE_PATH || '';
+        // Handle basePath for GitHub Pages or other subpath deployments
+        const basePath = (window as any).__NEXT_DATA__?.basePath || '';
         pdfjs.GlobalWorkerOptions.workerSrc = `${basePath}/pdf.worker.min.mjs`;
     }
     return pdfjs;
@@ -101,17 +102,5 @@ export const imagesToPDF = async (files: File[]): Promise<Blob> => {
     }
 
     return doc.output('blob');
-};
-
-export const createZipBlob = async (pages: { filename: string, blob: Blob }[]): Promise<Blob> => {
-    // @ts-ignore
-    const JSZip = (await import('jszip')).default;
-    const zip = new JSZip();
-
-    pages.forEach(({ filename, blob }) => {
-        zip.file(filename, blob);
-    });
-
-    return await zip.generateAsync({ type: 'blob' });
 };
 
