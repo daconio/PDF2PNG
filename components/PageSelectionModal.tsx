@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { Layers, AlertCircle, Check, HelpCircle } from 'lucide-react';
+import { Layers, AlertCircle, Check } from 'lucide-react';
 import { Button } from './Button';
 
 interface PageSelectionModalProps {
@@ -21,9 +21,12 @@ interface PageSelectionModalProps {
 
 // Helper function to parse page ranges (e.g., "1-3, 5")
 const parsePageInput = (input: string, totalCount: number): number[] => {
+  // Normalize ranges: remove spaces around hyphens (e.g. "1 - 5" -> "1-5")
+  const normalized = input.replace(/\s*-\s*/g, '-');
+  
   const pages = new Set<number>();
   // Allow spaces, commas, semicolons as delimiters
-  const parts = input.split(/[,;\s]+/).map(p => p.trim());
+  const parts = normalized.split(/[,;\s]+/).map(p => p.trim());
   
   for (const part of parts) {
     if (!part) continue;
@@ -95,6 +98,8 @@ export const PageSelectionModal: React.FC<PageSelectionModalProps> = ({
   return (
     <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200">
       <div className="bg-white border-2 border-black shadow-neo-lg w-full max-w-lg p-6 rounded-xl flex flex-col relative animate-in zoom-in-95 duration-200">
+        
+        {/* Header */}
         <div className="flex items-center gap-3 mb-4 pb-4 border-b-2 border-black/10">
           <div className="p-2 bg-primary border-2 border-black rounded shadow-neo-sm">
             <Layers size={20} className="text-black" />
@@ -104,6 +109,7 @@ export const PageSelectionModal: React.FC<PageSelectionModalProps> = ({
           </div>
         </div>
 
+        {/* File Info */}
         <div className="bg-gray-50 border border-black/20 rounded-lg p-3 mb-6 flex justify-between items-center">
           <div className="truncate pr-4">
              <p className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-0.5">File</p>
@@ -116,16 +122,22 @@ export const PageSelectionModal: React.FC<PageSelectionModalProps> = ({
           </div>
         </div>
 
-        <div className="mb-1 flex justify-between items-center">
-            <label className="text-sm font-bold text-black uppercase">Range / Numbers</label>
-            <div className="group relative">
-                <HelpCircle size={14} className="text-gray-400 cursor-help" />
-                <div className="absolute right-0 bottom-full mb-2 w-48 bg-black text-white text-xs p-2 rounded shadow-lg opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-10">
-                    Use dashes for ranges (1-5) and commas for individual pages (1, 3, 5).
-                </div>
+        {/* Description Label & Select All */}
+        <div className="mb-2 flex justify-between items-end">
+            <div>
+                <label className="text-sm font-bold text-black uppercase block mb-1">Selection</label>
+                <p className="text-sm text-gray-600 leading-snug">{translations.desc}</p>
             </div>
+            <button 
+                onClick={() => { setInput(`1-${totalPageCount}`); setError(''); inputRef.current?.focus(); }}
+                className="text-xs font-bold text-primary hover:text-primary-hover underline decoration-2 underline-offset-2 mb-1"
+                type="button"
+            >
+                {translations.selectAll}
+            </button>
         </div>
 
+        {/* Input Area */}
         <div className="relative mb-2">
           <input
             ref={inputRef}
@@ -136,6 +148,7 @@ export const PageSelectionModal: React.FC<PageSelectionModalProps> = ({
             placeholder={translations.placeholder}
             onKeyDown={(e) => e.key === 'Enter' && handleSubmit()}
           />
+
           {error && (
             <div className="absolute top-full left-0 mt-2 flex items-center gap-1 text-red-600 text-xs font-bold animate-pulse">
               <AlertCircle size={12} />
@@ -161,22 +174,14 @@ export const PageSelectionModal: React.FC<PageSelectionModalProps> = ({
            )}
         </div>
 
-        <div className="flex justify-between items-center mt-auto pt-4 border-t-2 border-black/5">
-          <button 
-             onClick={() => { setInput(`1-${totalPageCount}`); setError(''); inputRef.current?.focus(); }}
-             className="text-xs font-bold underline hover:text-primary transition-colors text-gray-500 hover:text-black"
-          >
-             {translations.selectAll}
-          </button>
-          
-          <div className="flex gap-3">
+        {/* Footer */}
+        <div className="flex justify-end items-center mt-auto pt-4 border-t-2 border-black/5 gap-3">
              <Button variant="secondary" onClick={onCancel} size="sm">
                {translations.cancel}
              </Button>
              <Button onClick={handleSubmit} size="sm" disabled={validPages.length === 0}>
                {translations.convert}
              </Button>
-          </div>
         </div>
       </div>
     </div>

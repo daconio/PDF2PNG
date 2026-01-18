@@ -6,6 +6,7 @@ import {
   AlignLeft, AlignCenter, AlignRight
 } from 'lucide-react';
 import { Button } from './Button';
+import { Tooltip } from './Tooltip';
 
 export type ToolMode = 'draw' | 'crop' | 'adjust';
 
@@ -458,23 +459,41 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ file, onSave, onClose,
           <div className="flex flex-wrap items-center gap-2 md:gap-4">
             {/* Main Tools */}
             <div className="flex bg-white rounded-lg border border-black shadow-sm overflow-hidden scale-90 md:scale-100 origin-left">
-              <button onClick={() => { setMode('draw'); setDrawTool('pen'); setTextInput(null); }} className={`p-2 hover:bg-gray-100 ${mode === 'draw' && drawTool === 'pen' ? 'bg-blue-100 text-blue-700' : ''}`} title="Pen"><Pen size={20} /></button>
+              <Tooltip content="Pen">
+                <button onClick={() => { setMode('draw'); setDrawTool('pen'); setTextInput(null); }} className={`p-2 hover:bg-gray-100 ${mode === 'draw' && drawTool === 'pen' ? 'bg-blue-100 text-blue-700' : ''}`}><Pen size={20} /></button>
+              </Tooltip>
               <div className="w-[1px] bg-gray-200"></div>
-              <button onClick={() => { setMode('draw'); setDrawTool('eraser'); setTextInput(null); }} className={`p-2 hover:bg-gray-100 ${mode === 'draw' && drawTool === 'eraser' ? 'bg-blue-100 text-blue-700' : ''}`} title="Eraser"><Eraser size={20} /></button>
+              <Tooltip content="Eraser">
+                <button onClick={() => { setMode('draw'); setDrawTool('eraser'); setTextInput(null); }} className={`p-2 hover:bg-gray-100 ${mode === 'draw' && drawTool === 'eraser' ? 'bg-blue-100 text-blue-700' : ''}`}><Eraser size={20} /></button>
+              </Tooltip>
               <div className="w-[1px] bg-gray-200"></div>
-              <button onClick={() => { setMode('draw'); setDrawTool('line'); setTextInput(null); }} className={`p-2 hover:bg-gray-100 ${mode === 'draw' && drawTool === 'line' ? 'bg-blue-100 text-blue-700' : ''}`} title="Line"><Slash size={20} /></button>
+              <Tooltip content="Line">
+                <button onClick={() => { setMode('draw'); setDrawTool('line'); setTextInput(null); }} className={`p-2 hover:bg-gray-100 ${mode === 'draw' && drawTool === 'line' ? 'bg-blue-100 text-blue-700' : ''}`}><Slash size={20} /></button>
+              </Tooltip>
               <div className="w-[1px] bg-gray-200"></div>
-              <button onClick={() => { setMode('draw'); setDrawTool('rect'); setTextInput(null); }} className={`p-2 hover:bg-gray-100 ${mode === 'draw' && drawTool === 'rect' ? 'bg-blue-100 text-blue-700' : ''}`} title="Rectangle"><Square size={20} /></button>
+              <Tooltip content="Rectangle">
+                <button onClick={() => { setMode('draw'); setDrawTool('rect'); setTextInput(null); }} className={`p-2 hover:bg-gray-100 ${mode === 'draw' && drawTool === 'rect' ? 'bg-blue-100 text-blue-700' : ''}`}><Square size={20} /></button>
+              </Tooltip>
               <div className="w-[1px] bg-gray-200"></div>
-              <button onClick={() => { setMode('draw'); setDrawTool('circle'); setTextInput(null); }} className={`p-2 hover:bg-gray-100 ${mode === 'draw' && drawTool === 'circle' ? 'bg-blue-100 text-blue-700' : ''}`} title="Circle"><CircleIcon size={20} /></button>
+              <Tooltip content="Circle">
+                <button onClick={() => { setMode('draw'); setDrawTool('circle'); setTextInput(null); }} className={`p-2 hover:bg-gray-100 ${mode === 'draw' && drawTool === 'circle' ? 'bg-blue-100 text-blue-700' : ''}`}><CircleIcon size={20} /></button>
+              </Tooltip>
               <div className="w-[1px] bg-gray-200"></div>
-              <button onClick={() => { setMode('draw'); setDrawTool('text'); }} className={`p-2 hover:bg-gray-100 ${mode === 'draw' && drawTool === 'text' ? 'bg-blue-100 text-blue-700' : ''}`} title="Text"><Type size={20} /></button>
+              <Tooltip content="Text">
+                <button onClick={() => { setMode('draw'); setDrawTool('text'); }} className={`p-2 hover:bg-gray-100 ${mode === 'draw' && drawTool === 'text' ? 'bg-blue-100 text-blue-700' : ''}`}><Type size={20} /></button>
+              </Tooltip>
               <div className="w-[1px] bg-gray-200"></div>
-              <button onClick={() => { setMode('crop'); setTextInput(null); }} className={`p-2 hover:bg-gray-100 ${mode === 'crop' ? 'bg-blue-100 text-blue-700' : ''}`} title="Crop"><Crop size={20} /></button>
+              <Tooltip content="Crop">
+                <button onClick={() => { setMode('crop'); setTextInput(null); }} className={`p-2 hover:bg-gray-100 ${mode === 'crop' ? 'bg-blue-100 text-blue-700' : ''}`}><Crop size={20} /></button>
+              </Tooltip>
               <div className="w-[1px] bg-gray-200"></div>
-              <button onClick={() => { setMode('adjust'); setTextInput(null); }} className={`p-2 hover:bg-gray-100 ${mode === 'adjust' ? 'bg-blue-100 text-blue-700' : ''}`} title="Adjustments"><SlidersHorizontal size={20} /></button>
+              <Tooltip content="Adjustments">
+                <button onClick={() => { setMode('adjust'); setTextInput(null); }} className={`p-2 hover:bg-gray-100 ${mode === 'adjust' ? 'bg-blue-100 text-blue-700' : ''}`}><SlidersHorizontal size={20} /></button>
+              </Tooltip>
               <div className="w-[1px] bg-gray-200"></div>
-              <button onClick={handleRotate} className="p-2 hover:bg-gray-100 active:bg-gray-200" title="Rotate 90°"><RotateCw size={20} /></button>
+              <Tooltip content="Rotate 90°">
+                <button onClick={handleRotate} className="p-2 hover:bg-gray-100 active:bg-gray-200"><RotateCw size={20} /></button>
+              </Tooltip>
             </div>
 
             {/* Contextual Options */}
@@ -540,14 +559,22 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ file, onSave, onClose,
                         <input type="range" min="50" max="150" value={contrast} onChange={(e) => setContrast(Number(e.target.value))} className="h-1 bg-gray-200 rounded-lg appearance-none cursor-pointer"/>
                     </div>
                     <div className="h-8 w-[1px] bg-gray-300 mx-1"></div>
-                    <button onClick={applyAdjustments} className="p-1.5 bg-green-100 text-green-700 rounded hover:bg-green-200" title="Apply"><Check size={16} /></button>
-                    <button onClick={() => { setMode('draw'); setBrightness(100); setContrast(100); }} className="p-1.5 hover:bg-gray-100 rounded" title="Cancel"><X size={16} /></button>
+                    <Tooltip content="Apply Changes">
+                        <button onClick={applyAdjustments} className="p-1.5 bg-green-100 text-green-700 rounded hover:bg-green-200"><Check size={16} /></button>
+                    </Tooltip>
+                    <Tooltip content="Cancel">
+                        <button onClick={() => { setMode('draw'); setBrightness(100); setContrast(100); }} className="p-1.5 hover:bg-gray-100 rounded"><X size={16} /></button>
+                    </Tooltip>
                  </div>
             )}
 
             <div className="flex gap-1">
-                <Button size="sm" variant="secondary" onClick={handleUndo} disabled={historyStep <= 0} title="Undo" className="hidden sm:flex"><Undo size={18} /></Button>
-                <Button size="sm" variant="secondary" onClick={handleRedo} disabled={historyStep >= history.length - 1} title="Redo" className="hidden sm:flex"><Redo size={18} /></Button>
+                <Tooltip content="Undo">
+                    <Button size="sm" variant="secondary" onClick={handleUndo} disabled={historyStep <= 0} className="hidden sm:flex"><Undo size={18} /></Button>
+                </Tooltip>
+                <Tooltip content="Redo">
+                    <Button size="sm" variant="secondary" onClick={handleRedo} disabled={historyStep >= history.length - 1} className="hidden sm:flex"><Redo size={18} /></Button>
+                </Tooltip>
             </div>
           </div>
 

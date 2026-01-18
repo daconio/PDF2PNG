@@ -27,6 +27,7 @@ import { Pipeline } from './components/Pipeline';
 import { ImageEditor, ToolMode } from './components/ImageEditor';
 import { PageSelectionModal } from './components/PageSelectionModal';
 import { SortableFileCard, FileCardOverlay } from './components/SortableFileCard';
+import { Tooltip } from './components/Tooltip';
 import JSZip from 'jszip';
 
 type Language = 'ko' | 'en';
@@ -80,7 +81,26 @@ const translations = {
     modalConvert: "CONVERT",
     modalCancel: "CANCEL",
     modalInvalid: "Invalid format. Check page numbers.",
-    modalSelectAll: "Select All Pages"
+    modalSelectAll: "Select All",
+    // Tooltips
+    ttClientSide: "All processing happens in your browser. No uploads.",
+    ttLang: "Switch Language / 언어 변경",
+    ttGithub: "View Source Code",
+    ttPdfToPng: "Extract images from PDF pages",
+    ttPngToPdf: "Combine multiple images into one PDF",
+    ttSplitPdf: "Extract specific pages into separate PDFs",
+    ttMergePdf: "Combine multiple PDFs into one",
+    ttFlattenPdf: "Rasterize PDF pages into images then merge",
+    ttAddFiles: "Add more files to the queue",
+    ttDownload: "Download file",
+    ttDelete: "Remove file",
+    ttCrop: "Crop image",
+    ttAdjust: "Adjust brightness & contrast",
+    ttRotate: "Rotate 90° clockwise",
+    ttEdit: "Open drawing editor",
+    ttClose: "Close preview",
+    ttDownloadZip: "Download all files as ZIP",
+    ttMergeAction: "Process and Download PDF"
   },
   ko: {
     heroTag: "클라우드 X • 개인정보 보호",
@@ -130,7 +150,26 @@ const translations = {
     modalConvert: "변환 시작",
     modalCancel: "취소",
     modalInvalid: "형식이 올바르지 않거나 페이지 범위를 벗어났습니다.",
-    modalSelectAll: "전체 페이지 선택"
+    modalSelectAll: "전체 선택",
+    // Tooltips
+    ttClientSide: "모든 처리는 브라우저 내에서 이루어집니다.",
+    ttLang: "언어 변경 / Switch Language",
+    ttGithub: "소스 코드 보기",
+    ttPdfToPng: "PDF 페이지를 이미지로 추출합니다",
+    ttPngToPdf: "여러 이미지를 하나의 PDF로 합칩니다",
+    ttSplitPdf: "특정 페이지를 별도의 PDF로 분리합니다",
+    ttMergePdf: "여러 PDF 파일을 하나로 합칩니다",
+    ttFlattenPdf: "PDF를 이미지로 변환하여 병합합니다 (편집 방지)",
+    ttAddFiles: "대기열에 파일 추가",
+    ttDownload: "파일 다운로드",
+    ttDelete: "파일 제거",
+    ttCrop: "이미지 자르기",
+    ttAdjust: "밝기 및 대비 조절",
+    ttRotate: "시계 방향 90도 회전",
+    ttEdit: "그리기 에디터 열기",
+    ttClose: "미리보기 닫기",
+    ttDownloadZip: "모든 파일 ZIP 다운로드",
+    ttMergeAction: "처리 및 PDF 다운로드"
   }
 };
 
@@ -571,22 +610,28 @@ export default function App() {
           </div>
           
           <div className="flex items-center gap-4">
-            <div className="hidden md:flex items-center gap-2 px-4 py-1.5 bg-[#aaddaa] text-black rounded-lg border-2 border-black shadow-neo-sm font-bold">
-               <span className="w-2 h-2 rounded-full bg-black"></span>
-               <span className="text-xs uppercase">{t('clientSide')}</span>
-            </div>
+            <Tooltip content={t('ttClientSide')} position="bottom">
+              <div className="hidden md:flex items-center gap-2 px-4 py-1.5 bg-[#aaddaa] text-black rounded-lg border-2 border-black shadow-neo-sm font-bold cursor-help">
+                 <span className="w-2 h-2 rounded-full bg-black"></span>
+                 <span className="text-xs uppercase">{t('clientSide')}</span>
+              </div>
+            </Tooltip>
             
-            <button 
-              onClick={() => setLang(lang === 'ko' ? 'en' : 'ko')}
-              className="flex items-center gap-2 text-sm font-bold text-black hover:bg-gray-100 transition-colors bg-white px-4 py-2 rounded-lg border-2 border-black shadow-neo-sm active:translate-x-[2px] active:translate-y-[2px] active:shadow-none"
-            >
-              <Globe size={18} />
-              {lang === 'ko' ? 'EN' : 'KO'}
-            </button>
+            <Tooltip content={t('ttLang')} position="bottom">
+              <button 
+                onClick={() => setLang(lang === 'ko' ? 'en' : 'ko')}
+                className="flex items-center gap-2 text-sm font-bold text-black hover:bg-gray-100 transition-colors bg-white px-4 py-2 rounded-lg border-2 border-black shadow-neo-sm active:translate-x-[2px] active:translate-y-[2px] active:shadow-none"
+              >
+                <Globe size={18} />
+                {lang === 'ko' ? 'EN' : 'KO'}
+              </button>
+            </Tooltip>
 
-            <a href="https://github.com" target="_blank" rel="noreferrer" className="bg-black text-white p-2 rounded-lg hover:bg-gray-800 transition-colors shadow-neo-sm">
-              <Github size={20} />
-            </a>
+            <Tooltip content={t('ttGithub')} position="bottom">
+              <a href="https://github.com" target="_blank" rel="noreferrer" className="bg-black text-white p-2 rounded-lg hover:bg-gray-800 transition-colors shadow-neo-sm inline-block">
+                <Github size={20} />
+              </a>
+            </Tooltip>
           </div>
         </div>
       </nav>
@@ -609,46 +654,60 @@ export default function App() {
           </p>
           
           <div className="flex flex-wrap justify-center gap-4 relative z-10">
-            <Button 
-              onClick={() => setMode(ConversionMode.PDF_TO_PNG)}
-              variant={mode === ConversionMode.PDF_TO_PNG ? 'primary' : 'secondary'}
-              size="lg"
-              className={mode === ConversionMode.PDF_TO_PNG ? 'ring-2 ring-primary ring-offset-2' : ''}
-            >
-              <FileText className="w-6 h-6" /> {t('pdfToPng')}
-            </Button>
-            <Button 
-              onClick={() => setMode(ConversionMode.PNG_TO_PDF)}
-              variant={mode === ConversionMode.PNG_TO_PDF ? 'primary' : 'secondary'}
-              size="lg"
-              className={mode === ConversionMode.PNG_TO_PDF ? 'ring-2 ring-primary ring-offset-2' : ''}
-            >
-              <Images className="w-6 h-6" /> {t('pngToPdf')}
-            </Button>
-            <Button 
-              onClick={() => setMode(ConversionMode.SPLIT_PDF)}
-              variant={mode === ConversionMode.SPLIT_PDF ? 'primary' : 'secondary'}
-              size="lg"
-              className={mode === ConversionMode.SPLIT_PDF ? 'ring-2 ring-primary ring-offset-2' : ''}
-            >
-              <Scissors className="w-6 h-6" /> {t('splitPdf')}
-            </Button>
-             <Button 
-              onClick={() => setMode(ConversionMode.MERGE_PDF)}
-              variant={mode === ConversionMode.MERGE_PDF ? 'primary' : 'secondary'}
-              size="lg"
-              className={mode === ConversionMode.MERGE_PDF ? 'ring-2 ring-primary ring-offset-2' : ''}
-            >
-              <Files className="w-6 h-6" /> {t('mergePdf')}
-            </Button>
-             <Button 
-              onClick={() => setMode(ConversionMode.FLATTEN_PDF)}
-              variant={mode === ConversionMode.FLATTEN_PDF ? 'primary' : 'secondary'}
-              size="lg"
-              className={mode === ConversionMode.FLATTEN_PDF ? 'ring-2 ring-primary ring-offset-2' : ''}
-            >
-              <Layers className="w-6 h-6" /> {t('flattenPdf')}
-            </Button>
+            <Tooltip content={t('ttPdfToPng')}>
+              <Button 
+                onClick={() => setMode(ConversionMode.PDF_TO_PNG)}
+                variant={mode === ConversionMode.PDF_TO_PNG ? 'primary' : 'secondary'}
+                size="lg"
+                className={mode === ConversionMode.PDF_TO_PNG ? 'ring-2 ring-primary ring-offset-2' : ''}
+              >
+                <FileText className="w-6 h-6" /> {t('pdfToPng')}
+              </Button>
+            </Tooltip>
+
+            <Tooltip content={t('ttPngToPdf')}>
+              <Button 
+                onClick={() => setMode(ConversionMode.PNG_TO_PDF)}
+                variant={mode === ConversionMode.PNG_TO_PDF ? 'primary' : 'secondary'}
+                size="lg"
+                className={mode === ConversionMode.PNG_TO_PDF ? 'ring-2 ring-primary ring-offset-2' : ''}
+              >
+                <Images className="w-6 h-6" /> {t('pngToPdf')}
+              </Button>
+            </Tooltip>
+
+            <Tooltip content={t('ttSplitPdf')}>
+              <Button 
+                onClick={() => setMode(ConversionMode.SPLIT_PDF)}
+                variant={mode === ConversionMode.SPLIT_PDF ? 'primary' : 'secondary'}
+                size="lg"
+                className={mode === ConversionMode.SPLIT_PDF ? 'ring-2 ring-primary ring-offset-2' : ''}
+              >
+                <Scissors className="w-6 h-6" /> {t('splitPdf')}
+              </Button>
+            </Tooltip>
+
+            <Tooltip content={t('ttMergePdf')}>
+              <Button 
+                onClick={() => setMode(ConversionMode.MERGE_PDF)}
+                variant={mode === ConversionMode.MERGE_PDF ? 'primary' : 'secondary'}
+                size="lg"
+                className={mode === ConversionMode.MERGE_PDF ? 'ring-2 ring-primary ring-offset-2' : ''}
+              >
+                <Files className="w-6 h-6" /> {t('mergePdf')}
+              </Button>
+            </Tooltip>
+
+            <Tooltip content={t('ttFlattenPdf')}>
+              <Button 
+                onClick={() => setMode(ConversionMode.FLATTEN_PDF)}
+                variant={mode === ConversionMode.FLATTEN_PDF ? 'primary' : 'secondary'}
+                size="lg"
+                className={mode === ConversionMode.FLATTEN_PDF ? 'ring-2 ring-primary ring-offset-2' : ''}
+              >
+                <Layers className="w-6 h-6" /> {t('flattenPdf')}
+              </Button>
+            </Tooltip>
           </div>
         </div>
 
@@ -669,9 +728,11 @@ export default function App() {
               ) : previewFile ? (
                 <div className="relative h-full flex flex-col">
                   <div className="absolute -top-14 right-0 z-10">
-                    <Button onClick={() => setPreviewFile(null)} variant="secondary" size="sm">
-                      <X size={16} /> {t('closePreview')}
-                    </Button>
+                    <Tooltip content={t('ttClose')} position="left">
+                      <Button onClick={() => setPreviewFile(null)} variant="secondary" size="sm">
+                        <X size={16} /> {t('closePreview')}
+                      </Button>
+                    </Tooltip>
                   </div>
                   <div className="flex-grow flex items-center justify-center bg-gray-100 rounded-xl border-2 border-black p-8 mt-2 min-h-[400px] shadow-inner">
                     {previewFile.name.endsWith('.pdf') ? (
@@ -690,24 +751,38 @@ export default function App() {
                     <div className="flex gap-2 shrink-0 flex-wrap justify-center">
                       {isImage(previewFile) && (
                         <>
-                          <Button onClick={() => openEditor('crop')} size="sm" variant="secondary" title={t('crop')} className="px-2">
-                             <Crop size={16} /> <span className="hidden sm:inline">{t('crop')}</span>
-                          </Button>
-                          <Button onClick={() => openEditor('adjust')} size="sm" variant="secondary" title={t('adjust')} className="px-2">
-                             <SlidersHorizontal size={16} /> <span className="hidden sm:inline">{t('adjust')}</span>
-                          </Button>
-                          <Button onClick={handleQuickRotate} size="sm" variant="secondary" title={t('rotate')} className="px-2">
-                             <RotateCw size={16} /> <span className="hidden sm:inline">{t('rotate')}</span>
-                          </Button>
+                          <Tooltip content={t('ttCrop')}>
+                            <Button onClick={() => openEditor('crop')} size="sm" variant="secondary" title="" className="px-2">
+                               <Crop size={16} /> <span className="hidden sm:inline">{t('crop')}</span>
+                            </Button>
+                          </Tooltip>
+
+                          <Tooltip content={t('ttAdjust')}>
+                            <Button onClick={() => openEditor('adjust')} size="sm" variant="secondary" title="" className="px-2">
+                               <SlidersHorizontal size={16} /> <span className="hidden sm:inline">{t('adjust')}</span>
+                            </Button>
+                          </Tooltip>
+
+                          <Tooltip content={t('ttRotate')}>
+                            <Button onClick={handleQuickRotate} size="sm" variant="secondary" title="" className="px-2">
+                               <RotateCw size={16} /> <span className="hidden sm:inline">{t('rotate')}</span>
+                            </Button>
+                          </Tooltip>
+
                           <div className="w-[1px] bg-gray-300 mx-1 h-8"></div>
-                          <Button onClick={() => openEditor('draw')} size="sm" variant="secondary">
-                            <Pencil size={16} /> {t('edit')}
-                          </Button>
+                          
+                          <Tooltip content={t('ttEdit')}>
+                            <Button onClick={() => openEditor('draw')} size="sm" variant="secondary">
+                              <Pencil size={16} /> {t('edit')}
+                            </Button>
+                          </Tooltip>
                         </>
                       )}
-                      <Button onClick={() => handleDownload(previewFile.url, previewFile.name)} size="sm" variant="primary">
-                        <Download size={16} /> {t('download')}
-                      </Button>
+                      <Tooltip content={t('ttDownload')}>
+                        <Button onClick={() => handleDownload(previewFile.url, previewFile.name)} size="sm" variant="primary">
+                          <Download size={16} /> {t('download')}
+                        </Button>
+                      </Tooltip>
                     </div>
                   </div>
                 </div>
@@ -777,9 +852,11 @@ export default function App() {
                   <div className="flex items-center justify-between mb-6 bg-[#d1fae5] p-4 rounded-xl border-2 border-black shadow-neo-sm">
                     <span className="text-sm font-black text-black uppercase">{generatedFiles.length} {t('ready')}</span>
                     <div className="flex gap-2">
-                        <button onClick={handleAddFilesClick} className="p-1 hover:bg-black/10 rounded-full transition-colors" title={t('addMore')}>
-                            <Plus size={20} className="text-black" />
-                        </button>
+                        <Tooltip content={t('ttAddFiles')} position="left">
+                          <button onClick={handleAddFilesClick} className="p-1 hover:bg-black/10 rounded-full transition-colors">
+                              <Plus size={20} className="text-black" />
+                          </button>
+                        </Tooltip>
                         <CheckCircle size={20} className="text-black" />
                     </div>
                   </div>
@@ -787,19 +864,23 @@ export default function App() {
                   <div className="grid grid-cols-1 gap-3 mb-6">
                     {/* Merge / Action Buttons */}
                     {(mode === ConversionMode.MERGE_PDF || mode === ConversionMode.PNG_TO_PDF || mode === ConversionMode.FLATTEN_PDF) ? (
-                      <Button onClick={handleMerge} className="w-full justify-between group" variant="primary" size="sm">
-                        <span className="flex items-center gap-2">
-                            {mode === ConversionMode.FLATTEN_PDF ? <Layers size={16} /> : <FileStack size={16} />}
-                            {mode === ConversionMode.FLATTEN_PDF ? t('flattenMerge') : t('mergeBack')}
-                        </span>
-                        <ArrowRight size={14} className="group-hover:translate-x-1 transition-transform" />
-                      </Button>
+                      <Tooltip content={t('ttMergeAction')} position="bottom">
+                        <Button onClick={handleMerge} className="w-full justify-between group" variant="primary" size="sm">
+                          <span className="flex items-center gap-2">
+                              {mode === ConversionMode.FLATTEN_PDF ? <Layers size={16} /> : <FileStack size={16} />}
+                              {mode === ConversionMode.FLATTEN_PDF ? t('flattenMerge') : t('mergeBack')}
+                          </span>
+                          <ArrowRight size={14} className="group-hover:translate-x-1 transition-transform" />
+                        </Button>
+                      </Tooltip>
                     ) : (
                        // For PDF_TO_PNG and SPLIT_PDF, we just offer ZIP download as we process immediately
-                       <Button onClick={handleDownloadZip} className="w-full justify-between group bg-black text-white hover:bg-gray-800" size="sm">
-                        <span className="flex items-center gap-2"><FileArchive size={16} /> {t('downloadZip')}</span>
-                        <ArrowRight size={14} className="group-hover:translate-x-1 transition-transform" />
-                      </Button>
+                       <Tooltip content={t('ttDownloadZip')} position="bottom">
+                         <Button onClick={handleDownloadZip} className="w-full justify-between group bg-black text-white hover:bg-gray-800" size="sm">
+                          <span className="flex items-center gap-2"><FileArchive size={16} /> {t('downloadZip')}</span>
+                          <ArrowRight size={14} className="group-hover:translate-x-1 transition-transform" />
+                        </Button>
+                      </Tooltip>
                     )}
                   </div>
 
@@ -825,6 +906,10 @@ export default function App() {
                               onPreview={() => { setPreviewFile(file); setEditingFile(null); }}
                               onDelete={() => handleDelete(file.id)}
                               onDownload={() => handleDownload(file.url, file.name)}
+                              translations={{
+                                delete: t('ttDelete'),
+                                download: t('ttDownload')
+                              }}
                             />
                           ))}
                           

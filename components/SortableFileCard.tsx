@@ -3,6 +3,7 @@ import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { FileText, Eye, Trash2, Download, GripVertical } from 'lucide-react';
 import { Button } from './Button';
+import { Tooltip } from './Tooltip';
 
 interface SortableFileCardProps {
   id: string;
@@ -15,6 +16,10 @@ interface SortableFileCardProps {
   onPreview: () => void;
   onDelete: () => void;
   onDownload: () => void;
+  translations?: {
+    delete: string;
+    download: string;
+  };
 }
 
 export const SortableFileCard: React.FC<SortableFileCardProps> = ({
@@ -23,7 +28,8 @@ export const SortableFileCard: React.FC<SortableFileCardProps> = ({
   isActive,
   onPreview,
   onDelete,
-  onDownload
+  onDownload,
+  translations
 }) => {
   const {
     attributes,
@@ -78,18 +84,23 @@ export const SortableFileCard: React.FC<SortableFileCardProps> = ({
           <p className="text-[10px] text-gray-600 font-mono">{(file.blob.size / 1024).toFixed(0)} KB</p>
         </div>
         <div className="flex gap-1">
-          <button
-            className="flex-1 flex items-center justify-center bg-[#fca5a5] border border-black rounded py-1 hover:bg-[#f87171] transition-colors"
-            onClick={(e) => { e.stopPropagation(); onDelete(); }}
-          >
-            <Trash2 size={12} className="text-black" />
-          </button>
-          <button
-            className="flex-1 flex items-center justify-center bg-white border border-black rounded py-1 hover:bg-gray-50 transition-colors"
-            onClick={(e) => { e.stopPropagation(); onDownload(); }}
-          >
-            <Download size={12} className="text-black" />
-          </button>
+          <Tooltip content={translations?.delete || "Delete"} className="flex-1">
+            <button
+              className="w-full flex items-center justify-center bg-[#fca5a5] border border-black rounded py-1 hover:bg-[#f87171] transition-colors"
+              onClick={(e) => { e.stopPropagation(); onDelete(); }}
+            >
+              <Trash2 size={12} className="text-black" />
+            </button>
+          </Tooltip>
+          
+          <Tooltip content={translations?.download || "Download"} className="flex-1">
+            <button
+              className="w-full flex items-center justify-center bg-white border border-black rounded py-1 hover:bg-gray-50 transition-colors"
+              onClick={(e) => { e.stopPropagation(); onDownload(); }}
+            >
+              <Download size={12} className="text-black" />
+            </button>
+          </Tooltip>
         </div>
       </div>
     </div>
