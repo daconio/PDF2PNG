@@ -1,67 +1,94 @@
 # Product Requirements Document (PRD) - ParsePDF
 
 ## 1. Executive Summary
-**ParsePDF** is a privacy-first, client-side web application designed to convert document formats directly within the user's browser. It offers a modern, high-performance interface for converting PDFs to PNG images and merging images into PDFs, ensuring user data never leaves their device.
+**ParsePDF** is a privacy-first, client-side web application designed for quick document manipulation. Unlike traditional PDF tools that require server uploads, ParsePDF processes all files locally within the user's browser, ensuring sensitive data never leaves the device. The application features a distinctive "Neo-Brutalist" design language, prioritizing bold aesthetics and high usability.
 
-## 2. Problem Statement
-Users often need to convert documents (PDFs into images for editing/sharing, or images into PDFs for archiving) but face several friction points with existing online tools:
-- **Privacy Concerns:** Most tools require uploading sensitive files to a remote server.
-- **Poor UX:** Ad-heavy, outdated, or cluttered interfaces.
-- **Workflow Inefficiency:** Lack of batch processing or cumbersome download processes (e.g., downloading zips for single pages).
+## 2. Core Value Propositions
+*   **Privacy First:** Zero server-side processing. All logic handles via Web Workers and Canvas API.
+*   **Speed:** Instant feedback without network latency for uploads/downloads.
+*   **Aesthetics:** Modern, high-contrast, tactile UI.
+*   **Accessibility:** Dual language support (English/Korean) and clear visual cues.
 
-## 3. Goals & Objectives
-- **Privacy First:** Ensure 100% of file processing happens locally in the browser.
-- **Modern UX:** Provide a professional, SaaS-grade aesthetic (clean, light mode, visualized pipelines) that instills trust.
-- **Efficiency:** Support batch processing and seamless local file saving via the File System Access API.
+## 3. Functional Requirements
 
-## 4. Feature Specifications
+### 3.1. Mode: PDF to PNG Conversion
+*   **Input:** Support for `.pdf` files via Drag & Drop or File Browser.
+*   **Page Parsing:**
+    *   Automatically detect total page count using `pdfjs-dist`.
+    *   **Page Selection Modal:**
+        *   Triggered immediately after file drop.
+        *   Allow input of ranges (e.g., "1-3") and individual pages (e.g., "1, 5, 8").
+        *   Validate input against total page count.
+        *   Provide textual preview of selected pages.
+*   **Processing:**
+    *   Render pages to HTML5 Canvas at scale 2.0 (Retina quality).
+    *   Convert Canvas to PNG Blob.
+*   **Output:**
+    *   Display list of generated PNGs.
+    *   Allow individual download.
+    *   Allow "Download ZIP" for all generated images.
 
-### 4.1 Core Functionality
-1.  **PDF to PNG Conversion**
-    -   **Input:** Single PDF file.
-    -   **Process:** Renders each page of the PDF to a high-quality (2x scale) PNG image using `pdfjs-dist`.
-    -   **Output:** Individual PNG files for each page.
-    -   **Download:** 
-        -   *Auto-save:* Direct write to user-selected local folder (if permission granted).
-        -   *Manual:* Individual click-to-download for specific pages.
+### 3.2. Mode: PNG to PDF Conversion
+*   **Input:** Support for image files (`.png`, `.jpg`, `.jpeg`, `.webp`).
+*   **Management:**
+    *   **Drag & Drop Sorting:** Users can reorder images using `dnd-kit` to determine page order in the final PDF.
+    *   Delete individual images from the queue.
+*   **Processing:**
+    *   Calculate aspect ratios to fit images within standard PDF page sizes using `jspdf`.
+    *   Auto-pagination (one image per page).
+*   **Output:**
+    *   Single merged PDF file.
 
-2.  **PNG to PDF Conversion**
-    -   **Input:** Multiple image files (PNG, JPG, JPEG).
-    -   **Process:** Merges selected images into a single PDF document using `jspdf`.
-    -   **Scaling:** Automatically scales images to fit standard page sizes while maintaining aspect ratios.
-    -   **Output:** A single `.pdf` file.
+### 3.3. Feature: Integrated Image Editor
+A lightweight editor available for generated PNGs or uploaded images before merging.
+*   **Tools:**
+    *   **Eraser:** Variable size brush to whiten out content.
+    *   **Text:** Add text overlays.
+        *   *Config:* Font Family (Pretendard, Nanum, System), Font Size, Text Color.
+    *   **Crop:** UI overlay with rule-of-thirds grid. Drag to select area.
+    *   **Adjust:** Brightness and Contrast sliders (50% - 150%).
+    *   **Rotate:** 90-degree clockwise rotation.
+*   **History:** Undo functionality for drawing/editing actions.
+*   **State Management:** Save changes to Blob and update the main file list.
 
-### 4.2 User Interface (UX)
--   **Dashboard:**
-    -   **Hero Section:** Clean drag-and-drop area with clear mode selection buttons.
-    -   **Pipeline View:** active upon file selection, visualizing the flow: `[Input Source] -> [Engine Core] -> [Output Result]`.
--   **Visual Feedback:**
-    -   Real-time status indicators for each page (Pending -> Processing -> Saving -> Completed).
-    -   "Sparkles" and flow animations to indicate active processing.
-    -   Grid background pattern for a technical/precision aesthetic.
+### 3.4. General UI/UX
+*   **Drop Zone:** Animated visual feedback when dragging files.
+*   **Preview Pane:**
+    *   PDFs: Iframe rendering.
+    *   Images: Scaled image rendering.
+*   **Pipeline Visualization:** Visual indicator of state (Input -> Process -> Output).
+*   **Localization:** Real-time toggle between English (EN) and Korean (KO).
 
-### 4.3 Technical Capabilities
--   **File System Access API:** Optional integration to allow the web app to write converted files directly to a user's local directory, bypassing the repetitive browser "Save As" dialogs.
--   **Client-Side Rendering:** Utilizes Web Workers (via PDF.js) to handle heavy processing without freezing the main UI thread.
+## 4. Technical Architecture
 
-## 5. Technology Stack
--   **Framework:** Next.js 15 (React 19)
--   **Styling:** Tailwind CSS (Custom "Reducto-style" light theme)
--   **Icons:** Lucide React
--   **Core Libraries:**
-    -   `pdfjs-dist`: PDF parsing and rendering.
-    -   `jspdf`: PDF generation.
-    -   `react-dropzone`: Drag-and-drop file handling.
+### 4.1. Tech Stack
+*   **Framework:** React 18 (Vite)
+*   **Styling:** Tailwind CSS (configured for Neo-Brutalism)
+*   **Core Libraries:**
+    *   `pdfjs-dist` (v3.11.174): PDF reading/rendering.
+    *   `jspdf`: PDF generation.
+    *   `jszip`: Archive generation.
+    *   `@dnd-kit`: Drag and drop interfaces.
+    *   `lucide-react`: Iconography.
 
-## 6. Non-Functional Requirements
--   **Performance:** Application load time under 1.5s. Processing should feel immediate for standard documents.
--   **Compatibility:**
-    -   Fully functional in modern browsers (Chrome, Edge, Firefox, Safari).
-    -   *Note:* File System Access API features are limited to Chromium-based browsers.
--   **Responsiveness:** Fully adaptive layout working on Desktop, Tablet, and Mobile devices.
+### 4.2. Performance Constraints
+*   **Web Workers:** PDF rendering must utilize `pdf.worker.min.js` to prevent blocking the main thread.
+*   **Memory:** Handle large Blobs carefully; revoke ObjectURLs when files are deleted or updated to prevent memory leaks.
 
-## 7. Future Roadmap
--   **ZIP Download:** "Download All" button packaging all images into a single ZIP file for browsers without File System API support.
--   **Page Selection:** Ability to select specific pages to convert from a PDF.
--   **Image Reordering:** Drag-and-drop reordering for PNG-to-PDF merging.
--   **Compression Settings:** User controls for output image quality/size.
+## 5. Design System (Neo-Brutalism)
+*   **Colors:**
+    *   Primary: Royal Blue (`#3b82f6`) / Soft Blue (`#88aaee`)
+    *   Background: Mist Rose (`#FFF0F0`) or White
+    *   Text/Borders: Pure Black (`#000000`)
+    *   Accent: Yellow (`#ffcc00`)
+*   **Typography:**
+    *   Headings: "Space Grotesk" (Sans-serif, geometric).
+    *   Korean Support: "Nanum Gothic", "Nanum Myeongjo", "Pretendard".
+*   **Components:**
+    *   **Cards:** Hard black borders (2px), sharp corners or slight rounding, hard drop shadows (`box-shadow: 4px 4px 0px 0px black`).
+    *   **Buttons:** High contrast, active states simulate physical pressing (transform translate).
+
+## 6. Future Roadmap
+*   **v1.1:** Add "Split PDF" functionality (separate from image conversion).
+*   **v1.2:** Client-side OCR (Tesseract.js integration) for text extraction.
+*   **v1.3:** PDF Compression settings (quality sliders).
