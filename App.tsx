@@ -345,11 +345,18 @@ export default function App() {
                 return newQ;
             });
 
-        } catch (error) {
+        } catch (error: any) {
             console.error(error);
+            const msg = error?.message || "Unknown error occurred";
             setQueue(prev => {
                 const newQ = [...prev];
-                newQ[nextItemIndex] = { ...newQ[nextItemIndex], status: ProcessStatus.ERROR };
+                if (newQ[nextItemIndex]) {
+                    newQ[nextItemIndex] = { 
+                        ...newQ[nextItemIndex], 
+                        status: ProcessStatus.ERROR,
+                        errorMessage: msg
+                    };
+                }
                 return newQ;
             });
         }
@@ -377,8 +384,18 @@ export default function App() {
                 const count = await getPdfPageCount(pdfFile);
                 setPendingPdf({ file: pdfFile, count });
                 return;
-            } catch (error) {
+            } catch (error: any) {
                 console.error(error);
+                const msg = error?.message || "Failed to read PDF";
+                // Add dummy failed item to queue to show error
+                 const fileItem: FileItem = {
+                    id: Math.random().toString(36).substr(2, 9),
+                    file: files[0],
+                    status: ProcessStatus.ERROR,
+                    progress: 0,
+                    errorMessage: msg
+                };
+                setQueue(prev => [...prev, fileItem]);
                 setStatus(ProcessStatus.ERROR);
                 return;
             }
@@ -515,9 +532,10 @@ export default function App() {
         
         setQueue([{...fileItem, status: ProcessStatus.COMPLETED, progress: 100}]);
         setStatus(ProcessStatus.COMPLETED);
-    } catch (error) {
+    } catch (error: any) {
         console.error(error);
-        setQueue([{...fileItem, status: ProcessStatus.ERROR}]);
+        const msg = error?.message || "Conversion failed";
+        setQueue([{...fileItem, status: ProcessStatus.ERROR, errorMessage: msg}]);
         setStatus(ProcessStatus.ERROR);
     }
   };
@@ -574,9 +592,10 @@ export default function App() {
       
       setQueue([{...mergeItem, status: ProcessStatus.COMPLETED, progress: 100}]);
       setStatus(ProcessStatus.COMPLETED);
-    } catch (error) {
+    } catch (error: any) {
       console.error(error);
-      setQueue([{...mergeItem, status: ProcessStatus.ERROR}]);
+      const msg = error?.message || "Merge operation failed";
+      setQueue([{...mergeItem, status: ProcessStatus.ERROR, errorMessage: msg}]);
       setStatus(ProcessStatus.ERROR);
     }
   };
@@ -984,22 +1003,28 @@ export default function App() {
                                 <div className="flex-grow min-w-0">
                                     <div className="flex justify-between mb-1">
                                         <span className="font-bold text-sm truncate">{item.file.name}</span>
-                                        <span className={`text-xs font-bold ${item.status === ProcessStatus.COMPLETED ? 'text-green-600' : 'text-gray-500'}`}>
+                                        <span className={`text-xs font-bold ${item.status === ProcessStatus.COMPLETED ? 'text-green-600' : item.status === ProcessStatus.ERROR ? 'text-red-500' : 'text-gray-500'}`}>
                                             {item.status === ProcessStatus.QUEUED ? 'WAITING' : 
                                              item.status === ProcessStatus.COMPLETED ? 'DONE' : 
-                                             item.status === ProcessStatus.ERROR ? 'ERROR' : 
+                                             item.status === ProcessStatus.ERROR ? 'FAILED' : 
                                              `${Math.round(item.progress)}%`}
                                         </span>
                                     </div>
-                                    <div className="h-2 bg-gray-100 rounded-full border border-black/10 overflow-hidden">
-                                        <div 
-                                            className={`h-full transition-all duration-300 ${
-                                                item.status === ProcessStatus.ERROR ? 'bg-red-400' :
-                                                item.status === ProcessStatus.COMPLETED ? 'bg-green-500' : 'bg-primary'
-                                            }`}
-                                            style={{ width: `${item.progress}%` }}
-                                        ></div>
-                                    </div>
+                                    
+                                    {item.status === ProcessStatus.ERROR ? (
+                                        <div className="text-xs text-red-500 font-medium bg-red-50 p-2 rounded border border-red-200">
+                                            {item.errorMessage || "Processing failed"}
+                                        </div>
+                                    ) : (
+                                        <div className="h-2 bg-gray-100 rounded-full border border-black/10 overflow-hidden">
+                                            <div 
+                                                className={`h-full transition-all duration-300 ${
+                                                    item.status === ProcessStatus.COMPLETED ? 'bg-green-500' : 'bg-primary'
+                                                }`}
+                                                style={{ width: `${item.progress}%` }}
+                                            ></div>
+                                        </div>
+                                    )}
                                 </div>
                             </div>
                         ))}

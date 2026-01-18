@@ -53,6 +53,7 @@ export const SortableFileCard: React.FC<SortableFileCardProps> = ({
     transition,
     opacity: isDragging ? 0.4 : 1,
     zIndex: isDragging ? 999 : 'auto',
+    touchAction: 'none', // Crucial for reliable touch dragging
   };
 
   const showThumbnail = isImageFile(file);

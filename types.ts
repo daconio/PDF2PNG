@@ -24,6 +24,7 @@ export interface FileItem {
   progress: number; // 0 to 100
   outputFiles?: Blob[]; // For PDF to PNG
   outputPdf?: Blob;     // For PNG to PDF
+  errorMessage?: string;
 }
 
 export interface PipelineStep {
