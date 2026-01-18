@@ -2,7 +2,7 @@ import React, { useRef, useState, useEffect } from 'react';
 import { 
   X, Save, Undo, Redo, Eraser, Type, Minus, Plus, 
   Crop, RotateCw, SlidersHorizontal, Check, MousePointer2, 
-  Pen, Square, Circle as CircleIcon, Slash,
+  Pen, Square, Circle as CircleIcon, Slash, ArrowRight,
   AlignLeft, AlignCenter, AlignRight, Pipette
 } from 'lucide-react';
 import { Button } from './Button';
@@ -24,11 +24,10 @@ const FONT_OPTIONS = [
   { label: 'Nanum Gothic', value: '"Nanum Gothic", sans-serif' },
   { label: 'Nanum Myeongjo', value: '"Nanum Myeongjo", serif' },
   { label: 'Space Grotesk', value: '"Space Grotesk", sans-serif' },
-  { label: 'System (Sans/Gothic)', value: '-apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Malgun Gothic", sans-serif' },
-  { label: 'System (Serif)', value: '"Batang", "Times New Roman", serif' },
+  { label: 'System', value: '-apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Malgun Gothic", sans-serif' },
 ];
 
-type DrawingTool = 'eraser' | 'text' | 'pen' | 'line' | 'rect' | 'circle' | 'eyedropper';
+type DrawingTool = 'eraser' | 'text' | 'pen' | 'line' | 'arrow' | 'rect' | 'circle' | 'eyedropper';
 
 export const ImageEditor: React.FC<ImageEditorProps> = ({ file, onSave, onClose, initialMode = 'draw' }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -281,14 +280,49 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ file, onSave, onClose,
       
       const startX = startPosRef.current.x;
       const startY = startPosRef.current.y;
-      const w = x - startX;
-      const h = y - startY;
+      
+      let currentX = x;
+      let currentY = y;
+
+      // Handle Shift key for constraints
+      if (e.shiftKey) {
+        const dx = x - startX;
+        const dy = y - startY;
+
+        if (drawTool === 'rect' || drawTool === 'circle') {
+            // Constrain to perfect square/circle (1:1 aspect ratio)
+            const side = Math.max(Math.abs(dx), Math.abs(dy));
+            currentX = startX + (dx >= 0 ? side : -side);
+            currentY = startY + (dy >= 0 ? side : -side);
+        } else if (drawTool === 'line' || drawTool === 'arrow') {
+            // Snap to 45 degree increments
+            const angle = Math.atan2(dy, dx);
+            const snapAngle = Math.round(angle / (Math.PI / 4)) * (Math.PI / 4);
+            const dist = Math.sqrt(dx * dx + dy * dy);
+            currentX = startX + Math.cos(snapAngle) * dist;
+            currentY = startY + Math.sin(snapAngle) * dist;
+        }
+      }
+
+      const w = currentX - startX;
+      const h = currentY - startY;
 
       tempCtx.beginPath();
       
       if (drawTool === 'line') {
         tempCtx.moveTo(startX, startY);
-        tempCtx.lineTo(x, y);
+        tempCtx.lineTo(currentX, currentY);
+      } else if (drawTool === 'arrow') {
+        const headLength = Math.max(10, strokeSize * 3);
+        const angle = Math.atan2(currentY - startY, currentX - startX);
+        
+        tempCtx.moveTo(startX, startY);
+        tempCtx.lineTo(currentX, currentY);
+        
+        // Draw Arrowhead
+        tempCtx.lineTo(currentX - headLength * Math.cos(angle - Math.PI / 6), currentY - headLength * Math.sin(angle - Math.PI / 6));
+        tempCtx.moveTo(currentX, currentY);
+        tempCtx.lineTo(currentX - headLength * Math.cos(angle + Math.PI / 6), currentY - headLength * Math.sin(angle + Math.PI / 6));
       } else if (drawTool === 'rect') {
         tempCtx.rect(startX, startY, w, h);
       } else if (drawTool === 'circle') {
@@ -314,7 +348,7 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ file, onSave, onClose,
       }
 
       // If shape tool, commit temp canvas to main canvas
-      if ((drawTool === 'rect' || drawTool === 'circle' || drawTool === 'line') && tempCanvasRef.current && ctx && tempCtx) {
+      if ((drawTool === 'rect' || drawTool === 'circle' || drawTool === 'line' || drawTool === 'arrow') && tempCanvasRef.current && ctx && tempCtx) {
           ctx.drawImage(tempCanvasRef.current, 0, 0);
           tempCtx.clearRect(0, 0, tempCanvasRef.current.width, tempCanvasRef.current.height);
       }
@@ -518,6 +552,10 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ file, onSave, onClose,
                 <button onClick={() => { setMode('draw'); setDrawTool('line'); setTextInput(null); }} className={`p-2 hover:bg-gray-100 ${mode === 'draw' && drawTool === 'line' ? 'bg-blue-100 text-blue-700' : ''}`}><Slash size={20} /></button>
               </Tooltip>
               <div className="w-[1px] bg-gray-200"></div>
+              <Tooltip content="Arrow">
+                <button onClick={() => { setMode('draw'); setDrawTool('arrow'); setTextInput(null); }} className={`p-2 hover:bg-gray-100 ${mode === 'draw' && drawTool === 'arrow' ? 'bg-blue-100 text-blue-700' : ''}`}><ArrowRight size={20} /></button>
+              </Tooltip>
+              <div className="w-[1px] bg-gray-200"></div>
               <Tooltip content="Rectangle">
                 <button onClick={() => { setMode('draw'); setDrawTool('rect'); setTextInput(null); }} className={`p-2 hover:bg-gray-100 ${mode === 'draw' && drawTool === 'rect' ? 'bg-blue-100 text-blue-700' : ''}`}><Square size={20} /></button>
               </Tooltip>
@@ -554,9 +592,9 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ file, onSave, onClose,
                  {/* Stroke Size for all drawing tools */}
                  {drawTool !== 'eyedropper' && (
                      <>
-                        <button onClick={() => drawTool === 'text' ? setTextSize(Math.max(10, textSize - 2)) : setStrokeSize(Math.max(1, strokeSize - 1))} className="p-1 hover:bg-gray-100 rounded"><Minus size={14} /></button>
+                        <button onMouseDown={(e) => e.preventDefault()} onClick={() => drawTool === 'text' ? setTextSize(Math.max(10, textSize - 2)) : setStrokeSize(Math.max(1, strokeSize - 1))} className="p-1 hover:bg-gray-100 rounded"><Minus size={14} /></button>
                         <span className="text-xs font-bold w-6 text-center">{drawTool === 'text' ? textSize : strokeSize}</span>
-                        <button onClick={() => drawTool === 'text' ? setTextSize(textSize + 2) : setStrokeSize(strokeSize + 1)} className="p-1 hover:bg-gray-100 rounded"><Plus size={14} /></button>
+                        <button onMouseDown={(e) => e.preventDefault()} onClick={() => drawTool === 'text' ? setTextSize(textSize + 2) : setStrokeSize(strokeSize + 1)} className="p-1 hover:bg-gray-100 rounded"><Plus size={14} /></button>
                      </>
                  )}
                  
@@ -584,17 +622,17 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ file, onSave, onClose,
                      <div className="w-[1px] h-4 bg-gray-300 mx-1"></div>
                      <div className="flex rounded border border-gray-300 overflow-hidden">
                         <Tooltip content="Align Left">
-                            <button onClick={() => setTextAlign('left')} className={`p-1 hover:bg-gray-100 ${textAlign === 'left' ? 'bg-blue-50 text-blue-600' : ''}`}><AlignLeft size={14} /></button>
+                            <button onMouseDown={(e) => e.preventDefault()} onClick={() => setTextAlign('left')} className={`p-1 hover:bg-gray-100 ${textAlign === 'left' ? 'bg-blue-50 text-blue-600' : ''}`}><AlignLeft size={14} /></button>
                         </Tooltip>
                         <Tooltip content="Align Center">
-                            <button onClick={() => setTextAlign('center')} className={`p-1 hover:bg-gray-100 ${textAlign === 'center' ? 'bg-blue-50 text-blue-600' : ''}`}><AlignCenter size={14} /></button>
+                            <button onMouseDown={(e) => e.preventDefault()} onClick={() => setTextAlign('center')} className={`p-1 hover:bg-gray-100 ${textAlign === 'center' ? 'bg-blue-50 text-blue-600' : ''}`}><AlignCenter size={14} /></button>
                         </Tooltip>
                         <Tooltip content="Align Right">
-                            <button onClick={() => setTextAlign('right')} className={`p-1 hover:bg-gray-100 ${textAlign === 'right' ? 'bg-blue-50 text-blue-600' : ''}`}><AlignRight size={14} /></button>
+                            <button onMouseDown={(e) => e.preventDefault()} onClick={() => setTextAlign('right')} className={`p-1 hover:bg-gray-100 ${textAlign === 'right' ? 'bg-blue-50 text-blue-600' : ''}`}><AlignRight size={14} /></button>
                         </Tooltip>
                      </div>
                      <div className="w-[1px] h-4 bg-gray-300 mx-1"></div>
-                     <select value={fontFamily} onChange={(e) => setFontFamily(e.target.value)} className="text-xs border border-gray-300 rounded p-1 max-w-[100px] focus:outline-none focus:border-black cursor-pointer">
+                     <select onMouseDown={(e) => e.preventDefault()} value={fontFamily} onChange={(e) => setFontFamily(e.target.value)} className="text-xs border border-gray-300 rounded p-1 max-w-[100px] focus:outline-none focus:border-black cursor-pointer">
                        {FONT_OPTIONS.map((opt) => <option key={opt.label} value={opt.value}>{opt.label}</option>)}
                      </select>
                    </>
