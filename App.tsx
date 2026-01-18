@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { Layout, Images, FileText, CheckCircle, ArrowRight, Download, Github, FileArchive, X, Eye, Pencil, FileStack, Globe, Cog, Crop, RotateCw, SlidersHorizontal, Files, Layers, Plus, UploadCloud, Scissors } from 'lucide-react';
+import { Layout, Images, FileText, CheckCircle, ArrowRight, Download, Github, FileArchive, X, Eye, Pencil, FileStack, Globe, Cog, Crop, RotateCw, SlidersHorizontal, Files, Layers, Plus, UploadCloud, Scissors, ChevronDown, ChevronUp } from 'lucide-react';
 import { useDropzone, Accept } from 'react-dropzone';
 import { 
   DndContext, 
@@ -74,6 +74,9 @@ const translations = {
     editor: "EDITOR",
     addMore: "ADD FILES",
     dropToAdd: "DROP TO ADD FILES",
+    expand: "Expand",
+    quality: "Compression / Quality",
+    qualityDesc: "Lower quality reduces file size.",
     // Modal
     modalTitle: "Select Pages",
     modalDesc: "Enter page numbers or ranges to extract (e.g. 1-3, 5, 8).",
@@ -143,6 +146,9 @@ const translations = {
     editor: "이미지 편집",
     addMore: "파일 추가",
     dropToAdd: "여기에 놓아서 추가",
+    expand: "펼치기",
+    quality: "압축 / 품질",
+    qualityDesc: "품질을 낮추면 파일 크기가 줄어듭니다.",
     // Modal
     modalTitle: "페이지 선택",
     modalDesc: "변환할 페이지 번호나 범위를 입력하세요 (예: 1-3, 5, 8).",
@@ -190,6 +196,10 @@ export default function App() {
   const [editingFile, setEditingFile] = useState<GeneratedFile | null>(null);
   const [editorInitialMode, setEditorInitialMode] = useState<ToolMode>('draw');
   const [activeId, setActiveId] = useState<string | null>(null);
+  const [quality, setQuality] = useState(0.9);
+  
+  // Collapsed state for Results panel
+  const [isResultsCollapsed, setIsResultsCollapsed] = useState(false);
 
   // Hidden input ref for "Add More" functionality
   const addFilesInputRef = useRef<HTMLInputElement>(null);
@@ -201,6 +211,15 @@ export default function App() {
 
   // Helper to determine layout state
   const isPreviewMode = !!previewFile || !!editingFile;
+
+  // Auto-collapse results when entering preview mode
+  useEffect(() => {
+    if (isPreviewMode) {
+      setIsResultsCollapsed(true);
+    } else {
+      setIsResultsCollapsed(false);
+    }
+  }, [isPreviewMode]);
 
   // Dnd Sensors
   const sensors = useSensors(
@@ -223,6 +242,7 @@ export default function App() {
     setPreviewFile(null);
     setEditingFile(null);
     setPendingPdf(null);
+    setQuality(0.9); // Reset quality on mode change
   }, [mode]);
 
   const handleFiles = useCallback(async (files: File[]) => {
@@ -384,12 +404,12 @@ export default function App() {
       } else if (mode === ConversionMode.FLATTEN_PDF) {
         pdfBlob = await flattenPdfs(blobs, (current, total) => {
            setCurrentFile(prev => prev ? { ...prev, progress: (current / total) * 100 } : null);
-        });
+        }, quality);
       } else {
         // PNG_TO_PDF
         pdfBlob = await convertImagesToPdf(blobs, (current, total) => {
            setCurrentFile(prev => prev ? { ...prev, progress: (current / total) * 100 } : null);
-        });
+        }, quality);
       }
       
       const url = URL.createObjectURL(pdfBlob);
@@ -516,8 +536,8 @@ export default function App() {
   };
 
   const isImage = (file: GeneratedFile) => {
-    const name = file.name.toLowerCase();
-    return name.endsWith('.png') || name.endsWith('.jpg') || name.endsWith('.jpeg') || name.endsWith('.webp');
+     if (file.blob && file.blob.type.startsWith('image/')) return true;
+     return /\.(jpg|jpeg|png|webp|gif|bmp|svg)$/i.test(file.name);
   };
   
   const getDropDesc = () => {
@@ -563,7 +583,7 @@ export default function App() {
   });
 
   return (
-    <div className="min-h-screen bg-background font-sans text-black selection:bg-primary selection:text-black">
+    <div className="flex flex-col min-h-screen bg-background font-sans text-black selection:bg-primary selection:text-black">
       {/* Hidden input for Add More functionality */}
       <input 
         type="file" 
@@ -636,7 +656,7 @@ export default function App() {
         </div>
       </nav>
 
-      <main className="max-w-7xl mx-auto px-6 py-12">
+      <main className="flex-grow w-full max-w-7xl mx-auto px-6 py-12">
         {/* Hero Section */}
         <div className="text-center mb-16 relative">
           <div className="absolute top-0 left-10 w-20 h-20 bg-yellow-200 rounded-full mix-blend-multiply filter blur-xl opacity-70 animate-blob"></div>
@@ -734,11 +754,11 @@ export default function App() {
                       </Button>
                     </Tooltip>
                   </div>
-                  <div className="flex-grow flex items-center justify-center bg-gray-100 rounded-xl border-2 border-black p-8 mt-2 min-h-[400px] shadow-inner">
-                    {previewFile.name.endsWith('.pdf') ? (
+                  <div className={`flex-grow flex items-center justify-center bg-gray-100 rounded-xl border-2 border-black p-8 mt-2 shadow-inner ${isPreviewMode ? 'min-h-[65vh]' : 'min-h-[400px]'}`}>
+                    {previewFile.name.toLowerCase().endsWith('.pdf') ? (
                       <iframe src={previewFile.url} className="w-full h-full border-2 border-black rounded-lg" title="PDF Preview"></iframe>
                     ) : (
-                      <img src={previewFile.url} alt="Preview" className="max-w-full max-h-[500px] object-contain shadow-neo-lg rounded-lg border-2 border-black bg-white" />
+                      <img src={previewFile.url} alt="Preview" className="max-w-full max-h-[65vh] object-contain shadow-neo-lg rounded-lg border-2 border-black bg-white" />
                     )}
                   </div>
                   <div className="mt-6 flex flex-col md:flex-row items-center justify-between bg-white p-4 rounded-xl border-2 border-black shadow-neo-sm gap-4">
@@ -830,120 +850,165 @@ export default function App() {
           </div>
 
           <div className={`${isPreviewMode ? 'w-full' : 'lg:col-span-1'}`}>
-            <Card title={t('results')} icon={Download} className="h-full">
-              {generatedFiles.length === 0 ? (
-                <div className="flex flex-col items-center justify-center h-[400px] text-gray-400 border-2 border-dashed border-gray-300 rounded-xl bg-gray-50">
-                  <div className="p-4 bg-white rounded-full mb-4 border-2 border-gray-300">
-                    <Download size={32} className="opacity-40" />
-                  </div>
-                  <p className="text-sm font-bold text-center px-6">{lang === 'ko' ? '여기에 결과 파일이 나타납니다.' : 'Your files will appear here.'}</p>
-                </div>
+            <Card 
+              title={t('results')} 
+              icon={Download} 
+              className={isResultsCollapsed ? 'h-auto' : 'h-full'}
+              action={
+                <button 
+                  onClick={() => setIsResultsCollapsed(prev => !prev)}
+                  className="p-1 hover:bg-gray-100 rounded-lg transition-colors"
+                >
+                  {isResultsCollapsed ? <ChevronDown size={20} /> : <ChevronUp size={20} />}
+                </button>
+              }
+            >
+              {isResultsCollapsed ? (
+                 <div 
+                    className="flex items-center justify-between p-4 bg-gray-50 rounded-lg border-2 border-black/5 cursor-pointer hover:bg-gray-100 transition-colors"
+                    onClick={() => setIsResultsCollapsed(false)}
+                 >
+                    <div className="flex items-center gap-2">
+                       <CheckCircle size={16} className="text-green-600"/>
+                       <span className="font-bold text-sm text-gray-700">{generatedFiles.length} {t('ready')}</span>
+                    </div>
+                    <span className="text-xs font-bold text-primary uppercase">{t('expand')}</span>
+                 </div>
               ) : (
-                <div {...getQueueRootProps()} className="flex flex-col h-full relative">
-                  {/* Drop Overlay for adding files to queue */}
-                  {isQueueDragActive && (
-                      <div className="absolute inset-0 z-50 bg-primary/90 rounded-xl flex flex-col items-center justify-center animate-in fade-in duration-200 border-2 border-black m-[-1rem]">
-                          <UploadCloud size={48} className="text-white mb-2 animate-bounce" />
-                          <p className="text-xl font-black text-white uppercase tracking-wider">{t('dropToAdd')}</p>
+                  generatedFiles.length === 0 ? (
+                    <div className="flex flex-col items-center justify-center h-[400px] text-gray-400 border-2 border-dashed border-gray-300 rounded-xl bg-gray-50">
+                      <div className="p-4 bg-white rounded-full mb-4 border-2 border-gray-300">
+                        <Download size={32} className="opacity-40" />
                       </div>
-                  )}
-                  <input {...getQueueInputProps()} />
-
-                  <div className="flex items-center justify-between mb-6 bg-[#d1fae5] p-4 rounded-xl border-2 border-black shadow-neo-sm">
-                    <span className="text-sm font-black text-black uppercase">{generatedFiles.length} {t('ready')}</span>
-                    <div className="flex gap-2">
-                        <Tooltip content={t('ttAddFiles')} position="left">
-                          <button onClick={handleAddFilesClick} className="p-1 hover:bg-black/10 rounded-full transition-colors">
-                              <Plus size={20} className="text-black" />
-                          </button>
-                        </Tooltip>
-                        <CheckCircle size={20} className="text-black" />
+                      <p className="text-sm font-bold text-center px-6">{lang === 'ko' ? '여기에 결과 파일이 나타납니다.' : 'Your files will appear here.'}</p>
                     </div>
-                  </div>
-                  
-                  <div className="grid grid-cols-1 gap-3 mb-6">
-                    {/* Merge / Action Buttons */}
-                    {(mode === ConversionMode.MERGE_PDF || mode === ConversionMode.PNG_TO_PDF || mode === ConversionMode.FLATTEN_PDF) ? (
-                      <Tooltip content={t('ttMergeAction')} position="bottom">
-                        <Button onClick={handleMerge} className="w-full justify-between group" variant="primary" size="sm">
-                          <span className="flex items-center gap-2">
-                              {mode === ConversionMode.FLATTEN_PDF ? <Layers size={16} /> : <FileStack size={16} />}
-                              {mode === ConversionMode.FLATTEN_PDF ? t('flattenMerge') : t('mergeBack')}
-                          </span>
-                          <ArrowRight size={14} className="group-hover:translate-x-1 transition-transform" />
-                        </Button>
-                      </Tooltip>
-                    ) : (
-                       // For PDF_TO_PNG and SPLIT_PDF, we just offer ZIP download as we process immediately
-                       <Tooltip content={t('ttDownloadZip')} position="bottom">
-                         <Button onClick={handleDownloadZip} className="w-full justify-between group bg-black text-white hover:bg-gray-800" size="sm">
-                          <span className="flex items-center gap-2"><FileArchive size={16} /> {t('downloadZip')}</span>
-                          <ArrowRight size={14} className="group-hover:translate-x-1 transition-transform" />
-                        </Button>
-                      </Tooltip>
-                    )}
-                  </div>
-
-                  {/* Sortable DND Context */}
-                  <DndContext 
-                    sensors={sensors}
-                    collisionDetection={closestCenter}
-                    onDragStart={handleDragStart}
-                    onDragEnd={handleDragEnd}
-                  >
-                    <div className="overflow-y-auto max-h-[600px] pr-2 custom-scrollbar flex-grow">
-                      <SortableContext 
-                        items={generatedFiles.map(f => f.id)}
-                        strategy={rectSortingStrategy}
-                      >
-                        <div className={`grid gap-3 pb-4 ${isPreviewMode ? 'grid-cols-2 sm:grid-cols-4 lg:grid-cols-6' : 'grid-cols-2'}`}>
-                          {generatedFiles.map((file) => (
-                            <SortableFileCard 
-                              key={file.id} 
-                              id={file.id}
-                              file={file}
-                              isActive={previewFile?.id === file.id}
-                              onPreview={() => { setPreviewFile(file); setEditingFile(null); }}
-                              onDelete={() => handleDelete(file.id)}
-                              onDownload={() => handleDownload(file.url, file.name)}
-                              translations={{
-                                delete: t('ttDelete'),
-                                download: t('ttDownload')
-                              }}
-                            />
-                          ))}
-                          
-                          {/* Inline Add Button inside grid */}
-                          <div 
-                             onClick={handleAddFilesClick}
-                             className="aspect-square border-2 border-dashed border-gray-300 rounded-lg flex flex-col items-center justify-center text-gray-400 hover:text-primary hover:border-primary hover:bg-blue-50 cursor-pointer transition-all"
-                          >
-                             <Plus size={24} />
-                             <span className="text-[10px] font-bold uppercase mt-1">{t('addMore')}</span>
+                  ) : (
+                    <div {...getQueueRootProps()} className="flex flex-col h-full relative">
+                      {/* Drop Overlay for adding files to queue */}
+                      {isQueueDragActive && (
+                          <div className="absolute inset-0 z-50 bg-primary/90 rounded-xl flex flex-col items-center justify-center animate-in fade-in duration-200 border-2 border-black m-[-1rem]">
+                              <UploadCloud size={48} className="text-white mb-2 animate-bounce" />
+                              <p className="text-xl font-black text-white uppercase tracking-wider">{t('dropToAdd')}</p>
                           </div>
+                      )}
+                      <input {...getQueueInputProps()} />
 
+                      <div className="flex items-center justify-between mb-6 bg-[#d1fae5] p-4 rounded-xl border-2 border-black shadow-neo-sm">
+                        <span className="text-sm font-black text-black uppercase">{generatedFiles.length} {t('ready')}</span>
+                        <div className="flex gap-2">
+                            <Tooltip content={t('ttAddFiles')} position="left">
+                              <button onClick={handleAddFilesClick} className="p-1 hover:bg-black/10 rounded-full transition-colors">
+                                  <Plus size={20} className="text-black" />
+                              </button>
+                            </Tooltip>
+                            <CheckCircle size={20} className="text-black" />
                         </div>
-                      </SortableContext>
-                    </div>
-
-                    <DragOverlay>
-                        {activeId ? (
-                            <FileCardOverlay 
-                              id={activeId}
-                              file={generatedFiles.find(f => f.id === activeId)!} 
+                      </div>
+                      
+                      <div className="grid grid-cols-1 gap-3 mb-6">
+                        {/* Compression Slider */}
+                        {(mode === ConversionMode.FLATTEN_PDF || mode === ConversionMode.PNG_TO_PDF) && (
+                          <div className="mb-2 p-4 bg-gray-50 rounded-lg border-2 border-black/5 animate-in fade-in slide-in-from-top-2 duration-300">
+                            <div className="flex justify-between mb-2 items-center">
+                              <label className="text-xs font-bold uppercase text-gray-500">{t('quality')}</label>
+                              <span className="text-xs font-black text-black bg-white px-2 py-0.5 rounded border border-black/10 shadow-sm">{Math.round(quality * 100)}%</span>
+                            </div>
+                            <input 
+                              type="range" 
+                              min="0.1" 
+                              max="1.0" 
+                              step="0.1" 
+                              value={quality} 
+                              onChange={(e) => setQuality(parseFloat(e.target.value))}
+                              className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-primary hover:accent-primary-hover focus:outline-none focus:ring-2 focus:ring-primary/20"
                             />
-                        ) : null}
-                    </DragOverlay>
-                  </DndContext>
+                            <p className="text-[10px] text-gray-400 mt-2 font-medium">{t('qualityDesc')}</p>
+                          </div>
+                        )}
 
-                </div>
+                        {/* Merge / Action Buttons */}
+                        {(mode === ConversionMode.MERGE_PDF || mode === ConversionMode.PNG_TO_PDF || mode === ConversionMode.FLATTEN_PDF) ? (
+                          <Tooltip content={t('ttMergeAction')} position="bottom">
+                            <Button onClick={handleMerge} className="w-full justify-between group" variant="primary" size="sm">
+                              <span className="flex items-center gap-2">
+                                  {mode === ConversionMode.FLATTEN_PDF ? <Layers size={16} /> : <FileStack size={16} />}
+                                  {mode === ConversionMode.FLATTEN_PDF ? t('flattenMerge') : t('mergeBack')}
+                              </span>
+                              <ArrowRight size={14} className="group-hover:translate-x-1 transition-transform" />
+                            </Button>
+                          </Tooltip>
+                        ) : (
+                          // For PDF_TO_PNG and SPLIT_PDF, we just offer ZIP download as we process immediately
+                          <Tooltip content={t('ttDownloadZip')} position="bottom">
+                            <Button onClick={handleDownloadZip} className="w-full justify-between group bg-black text-white hover:bg-gray-800" size="sm">
+                              <span className="flex items-center gap-2"><FileArchive size={16} /> {t('downloadZip')}</span>
+                              <ArrowRight size={14} className="group-hover:translate-x-1 transition-transform" />
+                            </Button>
+                          </Tooltip>
+                        )}
+                      </div>
+
+                      {/* Sortable DND Context */}
+                      <DndContext 
+                        sensors={sensors}
+                        collisionDetection={closestCenter}
+                        onDragStart={handleDragStart}
+                        onDragEnd={handleDragEnd}
+                      >
+                        <div className="overflow-y-auto max-h-[600px] pr-2 custom-scrollbar flex-grow">
+                          <SortableContext 
+                            items={generatedFiles.map(f => f.id)}
+                            strategy={rectSortingStrategy}
+                          >
+                            <div className={`grid gap-3 pb-4 ${isPreviewMode ? 'grid-cols-2 sm:grid-cols-4 lg:grid-cols-6' : 'grid-cols-2'}`}>
+                              {generatedFiles.map((file) => (
+                                <SortableFileCard 
+                                  key={file.id} 
+                                  id={file.id}
+                                  file={file}
+                                  isActive={previewFile?.id === file.id}
+                                  onPreview={() => { setPreviewFile(file); setEditingFile(null); }}
+                                  onDelete={() => handleDelete(file.id)}
+                                  onDownload={() => handleDownload(file.url, file.name)}
+                                  translations={{
+                                    delete: t('ttDelete'),
+                                    download: t('ttDownload')
+                                  }}
+                                />
+                              ))}
+                              
+                              {/* Inline Add Button inside grid */}
+                              <div 
+                                onClick={handleAddFilesClick}
+                                className="aspect-square border-2 border-dashed border-gray-300 rounded-lg flex flex-col items-center justify-center text-gray-400 hover:text-primary hover:border-primary hover:bg-blue-50 cursor-pointer transition-all"
+                              >
+                                <Plus size={24} />
+                                <span className="text-[10px] font-bold uppercase mt-1">{t('addMore')}</span>
+                              </div>
+
+                            </div>
+                          </SortableContext>
+                        </div>
+
+                        <DragOverlay>
+                            {activeId ? (
+                                <FileCardOverlay 
+                                  id={activeId}
+                                  file={generatedFiles.find(f => f.id === activeId)!} 
+                                />
+                            ) : null}
+                        </DragOverlay>
+                      </DndContext>
+
+                    </div>
+                  )
               )}
             </Card>
           </div>
         </div>
       </main>
 
-      <footer className="border-t-2 border-black bg-white py-12 mt-12">
+      <footer className="border-t-2 border-black bg-white py-12 mt-12 relative z-10">
         <div className="max-w-7xl mx-auto px-6 text-center">
           <p className="font-black text-xl text-black mb-2 uppercase tracking-tight">{t('footerTitle')}</p>
           <p className="text-gray-600 font-medium text-sm">{t('footerDesc')}</p>

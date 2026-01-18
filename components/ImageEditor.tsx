@@ -3,7 +3,7 @@ import {
   X, Save, Undo, Redo, Eraser, Type, Minus, Plus, 
   Crop, RotateCw, SlidersHorizontal, Check, MousePointer2, 
   Pen, Square, Circle as CircleIcon, Slash,
-  AlignLeft, AlignCenter, AlignRight
+  AlignLeft, AlignCenter, AlignRight, Pipette
 } from 'lucide-react';
 import { Button } from './Button';
 import { Tooltip } from './Tooltip';
@@ -28,7 +28,7 @@ const FONT_OPTIONS = [
   { label: 'System (Serif)', value: '"Batang", "Times New Roman", serif' },
 ];
 
-type DrawingTool = 'eraser' | 'text' | 'pen' | 'line' | 'rect' | 'circle';
+type DrawingTool = 'eraser' | 'text' | 'pen' | 'line' | 'rect' | 'circle' | 'eyedropper';
 
 export const ImageEditor: React.FC<ImageEditorProps> = ({ file, onSave, onClose, initialMode = 'draw' }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -190,6 +190,18 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ file, onSave, onClose,
   const startDrawing = (e: React.MouseEvent<HTMLCanvasElement>) => {
     if (mode !== 'draw' || !ctx || !canvasRef.current) return;
     
+    // Handle Eyedropper Tool
+    if (drawTool === 'eyedropper') {
+        const { x, y } = getCoordinates(e);
+        const pixel = ctx.getImageData(x, y, 1, 1).data;
+        // Convert [r,g,b] to hex
+        const hex = "#" + ((1 << 24) + (pixel[0] << 16) + (pixel[1] << 8) + pixel[2]).toString(16).slice(1);
+        setStrokeColor(hex);
+        // Automatically switch back to pen for convenience
+        setDrawTool('pen');
+        return;
+    }
+
     // Handle Text Tool separately
     if (drawTool === 'text') {
         const rect = canvasRef.current.getBoundingClientRect();
@@ -483,6 +495,10 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ file, onSave, onClose,
                 <button onClick={() => { setMode('draw'); setDrawTool('text'); }} className={`p-2 hover:bg-gray-100 ${mode === 'draw' && drawTool === 'text' ? 'bg-blue-100 text-blue-700' : ''}`}><Type size={20} /></button>
               </Tooltip>
               <div className="w-[1px] bg-gray-200"></div>
+              <Tooltip content="Eyedropper">
+                <button onClick={() => { setMode('draw'); setDrawTool('eyedropper'); setTextInput(null); }} className={`p-2 hover:bg-gray-100 ${mode === 'draw' && drawTool === 'eyedropper' ? 'bg-blue-100 text-blue-700' : ''}`}><Pipette size={20} /></button>
+              </Tooltip>
+              <div className="w-[1px] bg-gray-200"></div>
               <Tooltip content="Crop">
                 <button onClick={() => { setMode('crop'); setTextInput(null); }} className={`p-2 hover:bg-gray-100 ${mode === 'crop' ? 'bg-blue-100 text-blue-700' : ''}`}><Crop size={20} /></button>
               </Tooltip>
@@ -501,11 +517,15 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ file, onSave, onClose,
                <div className="flex items-center gap-2 bg-white border border-black px-2 py-1 shadow-sm rounded scale-90 md:scale-100 origin-left">
                  
                  {/* Stroke Size for all drawing tools */}
-                 <button onClick={() => drawTool === 'text' ? setTextSize(Math.max(10, textSize - 2)) : setStrokeSize(Math.max(1, strokeSize - 1))} className="p-1 hover:bg-gray-100 rounded"><Minus size={14} /></button>
-                 <span className="text-xs font-bold w-6 text-center">{drawTool === 'text' ? textSize : strokeSize}</span>
-                 <button onClick={() => drawTool === 'text' ? setTextSize(textSize + 2) : setStrokeSize(strokeSize + 1)} className="p-1 hover:bg-gray-100 rounded"><Plus size={14} /></button>
+                 {drawTool !== 'eyedropper' && (
+                     <>
+                        <button onClick={() => drawTool === 'text' ? setTextSize(Math.max(10, textSize - 2)) : setStrokeSize(Math.max(1, strokeSize - 1))} className="p-1 hover:bg-gray-100 rounded"><Minus size={14} /></button>
+                        <span className="text-xs font-bold w-6 text-center">{drawTool === 'text' ? textSize : strokeSize}</span>
+                        <button onClick={() => drawTool === 'text' ? setTextSize(textSize + 2) : setStrokeSize(strokeSize + 1)} className="p-1 hover:bg-gray-100 rounded"><Plus size={14} /></button>
+                     </>
+                 )}
                  
-                 {drawTool !== 'eraser' && (
+                 {drawTool !== 'eraser' && drawTool !== 'eyedropper' && (
                     <>
                         <div className="w-[1px] h-4 bg-gray-300 mx-1"></div>
                         <input type="color" value={strokeColor} onChange={(e) => setStrokeColor(e.target.value)} className="w-6 h-6 border-0 p-0 rounded cursor-pointer" title="Color" />
@@ -513,7 +533,7 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ file, onSave, onClose,
                  )}
 
                  {/* Opacity for Pen and Shapes */}
-                 {drawTool !== 'eraser' && drawTool !== 'text' && (
+                 {drawTool !== 'eraser' && drawTool !== 'text' && drawTool !== 'eyedropper' && (
                     <>
                         <div className="w-[1px] h-4 bg-gray-300 mx-1"></div>
                         <div className="flex flex-col w-16">
@@ -528,15 +548,26 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ file, onSave, onClose,
                    <>
                      <div className="w-[1px] h-4 bg-gray-300 mx-1"></div>
                      <div className="flex rounded border border-gray-300 overflow-hidden">
-                        <button onClick={() => setTextAlign('left')} className={`p-1 hover:bg-gray-100 ${textAlign === 'left' ? 'bg-blue-50 text-blue-600' : ''}`}><AlignLeft size={14} /></button>
-                        <button onClick={() => setTextAlign('center')} className={`p-1 hover:bg-gray-100 ${textAlign === 'center' ? 'bg-blue-50 text-blue-600' : ''}`}><AlignCenter size={14} /></button>
-                        <button onClick={() => setTextAlign('right')} className={`p-1 hover:bg-gray-100 ${textAlign === 'right' ? 'bg-blue-50 text-blue-600' : ''}`}><AlignRight size={14} /></button>
+                        <Tooltip content="Align Left">
+                            <button onClick={() => setTextAlign('left')} className={`p-1 hover:bg-gray-100 ${textAlign === 'left' ? 'bg-blue-50 text-blue-600' : ''}`}><AlignLeft size={14} /></button>
+                        </Tooltip>
+                        <Tooltip content="Align Center">
+                            <button onClick={() => setTextAlign('center')} className={`p-1 hover:bg-gray-100 ${textAlign === 'center' ? 'bg-blue-50 text-blue-600' : ''}`}><AlignCenter size={14} /></button>
+                        </Tooltip>
+                        <Tooltip content="Align Right">
+                            <button onClick={() => setTextAlign('right')} className={`p-1 hover:bg-gray-100 ${textAlign === 'right' ? 'bg-blue-50 text-blue-600' : ''}`}><AlignRight size={14} /></button>
+                        </Tooltip>
                      </div>
                      <div className="w-[1px] h-4 bg-gray-300 mx-1"></div>
-                     <select value={fontFamily} onChange={(e) => setFontFamily(e.target.value)} className="text-xs border border-gray-300 rounded p-1 max-w-[100px] focus:outline-none focus:border-black">
+                     <select value={fontFamily} onChange={(e) => setFontFamily(e.target.value)} className="text-xs border border-gray-300 rounded p-1 max-w-[100px] focus:outline-none focus:border-black cursor-pointer">
                        {FONT_OPTIONS.map((opt) => <option key={opt.label} value={opt.value}>{opt.label}</option>)}
                      </select>
                    </>
+                 )}
+                 
+                 {/* Eyedropper Message */}
+                 {drawTool === 'eyedropper' && (
+                     <span className="text-xs font-medium text-gray-500 px-2">Click image to pick color</span>
                  )}
                </div>
             )}
@@ -603,7 +634,8 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ file, onSave, onClose,
               className="max-w-none block"
               style={{
                   filter: mode === 'adjust' ? `brightness(${brightness}%) contrast(${contrast}%)` : 'none',
-                  pointerEvents: mode === 'crop' ? 'none' : 'auto'
+                  pointerEvents: mode === 'crop' ? 'none' : 'auto',
+                  cursor: drawTool === 'eyedropper' ? 'crosshair' : 'crosshair'
               }}
             />
             

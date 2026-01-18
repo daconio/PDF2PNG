@@ -22,6 +22,14 @@ interface SortableFileCardProps {
   };
 }
 
+// Robust image check: checks blob type or file extension (case-insensitive)
+const isImageFile = (file: { name: string; blob: Blob }) => {
+  if (file.blob && file.blob.type && file.blob.type !== 'application/octet-stream') {
+     return file.blob.type.startsWith('image/');
+  }
+  return /\.(jpg|jpeg|png|webp|gif|bmp|svg)$/i.test(file.name);
+};
+
 export const SortableFileCard: React.FC<SortableFileCardProps> = ({
   id,
   file,
@@ -47,6 +55,8 @@ export const SortableFileCard: React.FC<SortableFileCardProps> = ({
     zIndex: isDragging ? 999 : 'auto',
   };
 
+  const showThumbnail = isImageFile(file);
+
   return (
     <div
       ref={setNodeRef}
@@ -66,10 +76,10 @@ export const SortableFileCard: React.FC<SortableFileCardProps> = ({
 
       <div 
         onClick={onPreview}
-        className="aspect-square bg-gray-100 flex items-center justify-center relative border-b-2 border-black cursor-pointer"
+        className="aspect-square bg-gray-100 flex items-center justify-center relative border-b-2 border-black cursor-pointer overflow-hidden"
       >
-        {file.name.endsWith('.png') || file.name.endsWith('.jpg') || file.name.endsWith('.jpeg') ? (
-          <img src={file.url} alt="Thumbnail" className="w-full h-full object-cover" />
+        {showThumbnail ? (
+          <img src={file.url} alt={file.name} className="w-full h-full object-cover" />
         ) : (
           <FileText size={32} className="text-gray-400" />
         )}
@@ -80,7 +90,7 @@ export const SortableFileCard: React.FC<SortableFileCardProps> = ({
       
       <div className="p-2 space-y-2">
         <div className="truncate">
-          <p className="text-xs font-bold text-black truncate">{file.name}</p>
+          <p className="text-xs font-bold text-black truncate" title={file.name}>{file.name}</p>
           <p className="text-[10px] text-gray-600 font-mono">{(file.blob.size / 1024).toFixed(0)} KB</p>
         </div>
         <div className="flex gap-1">
@@ -109,11 +119,13 @@ export const SortableFileCard: React.FC<SortableFileCardProps> = ({
 
 // Simple Overlay component for the item while dragging
 export const FileCardOverlay: React.FC<Omit<SortableFileCardProps, 'onPreview' | 'onDelete' | 'onDownload'>> = ({ file }) => {
+  const showThumbnail = isImageFile(file);
+  
   return (
     <div className="border-2 border-black rounded-lg bg-white overflow-hidden shadow-neo-lg scale-105 cursor-grabbing">
-      <div className="aspect-square bg-gray-100 flex items-center justify-center relative border-b-2 border-black">
-        {(file.name.endsWith('.png') || file.name.endsWith('.jpg')) ? (
-          <img src={file.url} alt="Thumbnail" className="w-full h-full object-cover" />
+      <div className="aspect-square bg-gray-100 flex items-center justify-center relative border-b-2 border-black overflow-hidden">
+        {showThumbnail ? (
+          <img src={file.url} alt={file.name} className="w-full h-full object-cover" />
         ) : (
           <FileText size={32} className="text-gray-400" />
         )}

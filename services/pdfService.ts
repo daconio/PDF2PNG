@@ -97,19 +97,20 @@ export const convertPdfToPng = async (
 
 /**
  * Merges multiple image files (or blobs) into a single PDF.
+ * Supports compression via quality parameter (0.0 - 1.0).
  */
 export const convertImagesToPdf = async (
   files: Blob[],
-  onProgress: (current: number, total: number) => void
+  onProgress: (current: number, total: number) => void,
+  quality: number = 0.95
 ): Promise<Blob> => {
-  // Handle jsPDF import potential issues similarly if needed
   const doc = new jsPDF();
   
   for (let i = 0; i < files.length; i++) {
     const file = files[i];
     const imageUrl = URL.createObjectURL(file);
     
-    // Load image to get dimensions
+    // Load image
     const img = new Image();
     img.src = imageUrl;
     await new Promise((resolve, reject) => { 
@@ -117,22 +118,39 @@ export const convertImagesToPdf = async (
         img.onerror = reject;
     });
 
-    const imgProps = doc.getImageProperties(img);
-    const pdfWidth = doc.internal.pageSize.getWidth();
-    const pdfHeight = doc.internal.pageSize.getHeight();
+    // Draw to canvas to handle compression and transparency (convert to white)
+    const canvas = document.createElement('canvas');
+    canvas.width = img.width;
+    canvas.height = img.height;
+    const ctx = canvas.getContext('2d');
     
-    // Calculate aspect ratio to fit page
-    const ratio = Math.min(pdfWidth / imgProps.width, pdfHeight / imgProps.height);
-    const width = imgProps.width * ratio;
-    const height = imgProps.height * ratio;
-    const x = (pdfWidth - width) / 2;
-    const y = (pdfHeight - height) / 2;
+    if (ctx) {
+        // Fill white background for transparency handling
+        ctx.fillStyle = '#FFFFFF';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.drawImage(img, 0, 0);
+        
+        // Export as JPEG with specified quality
+        const imgData = canvas.toDataURL('image/jpeg', quality);
+        
+        const imgProps = doc.getImageProperties(imgData);
+        const pdfWidth = doc.internal.pageSize.getWidth();
+        const pdfHeight = doc.internal.pageSize.getHeight();
+        
+        // Calculate aspect ratio to fit page
+        const ratio = Math.min(pdfWidth / imgProps.width, pdfHeight / imgProps.height);
+        const width = imgProps.width * ratio;
+        const height = imgProps.height * ratio;
+        const x = (pdfWidth - width) / 2;
+        const y = (pdfHeight - height) / 2;
 
-    if (i > 0) {
-      doc.addPage();
+        if (i > 0) {
+          doc.addPage();
+        }
+        
+        doc.addImage(imgData, 'JPEG', x, y, width, height);
     }
     
-    doc.addImage(img, x, y, width, height);
     onProgress(i + 1, files.length);
     URL.revokeObjectURL(imageUrl);
   }
@@ -194,10 +212,12 @@ export const splitPdf = async (
 /**
  * Memory-efficiently converts PDFs to Images and then immediately into a single PDF.
  * This effectively "flattens" the PDFs.
+ * Supports compression via quality parameter.
  */
 export const flattenPdfs = async (
     files: Blob[],
-    onProgress: (current: number, total: number) => void
+    onProgress: (current: number, total: number) => void,
+    quality: number = 0.95
 ): Promise<Blob> => {
     const doc = new jsPDF();
     let totalPagesProcessed = 0;
@@ -239,8 +259,8 @@ export const flattenPdfs = async (
             }).promise;
 
             // Add to PDF
-            // Note: We use the canvas data directly to avoid creating Blob URL overhead
-            const imgData = canvas.toDataURL('image/jpeg', 0.95); // JPEG 0.95 is efficient
+            // Use JPEG with quality setting for compression
+            const imgData = canvas.toDataURL('image/jpeg', quality); 
             
             const imgProps = doc.getImageProperties(imgData);
             const pdfWidth = doc.internal.pageSize.getWidth();
