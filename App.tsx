@@ -1,5 +1,6 @@
-import React, { useState, useEffect } from 'react';
-import { Layout, Images, FileText, CheckCircle, ArrowRight, Download, Github, FileArchive, X, Eye, Pencil, FileStack, Globe, Cog } from 'lucide-react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { Layout, Images, FileText, CheckCircle, ArrowRight, Download, Github, FileArchive, X, Eye, Pencil, FileStack, Globe, Cog, Crop, RotateCw, SlidersHorizontal, Files, Layers, Plus, UploadCloud } from 'lucide-react';
+import { useDropzone, Accept } from 'react-dropzone';
 import { 
   DndContext, 
   closestCenter, 
@@ -18,12 +19,12 @@ import {
 } from '@dnd-kit/sortable';
 
 import { ConversionMode, ProcessStatus, FileItem } from './types';
-import { convertPdfToPng, convertImagesToPdf, getPdfPageCount } from './services/pdfService';
+import { convertPdfToPng, convertImagesToPdf, getPdfPageCount, rotateImage, mergePdfs, flattenPdfs } from './services/pdfService';
 import { Button } from './components/Button';
 import { Card } from './components/Card';
 import { DropZone } from './components/DropZone';
 import { Pipeline } from './components/Pipeline';
-import { ImageEditor } from './components/ImageEditor';
+import { ImageEditor, ToolMode } from './components/ImageEditor';
 import { PageSelectionModal } from './components/PageSelectionModal';
 import { SortableFileCard, FileCardOverlay } from './components/SortableFileCard';
 import JSZip from 'jszip';
@@ -38,14 +39,17 @@ const translations = {
     heroDesc: "Convert PDFs to PNGs or merge images into PDFs directly in your browser. Brutally simple, fast, and secure.",
     pdfToPng: "PDF to PNG",
     pngToPdf: "PNG to PDF",
+    mergePdf: "Merge PDF",
+    flattenPdf: "Flatten PDF",
     workspace: "WORKSPACE",
-    results: "RESULTS",
+    results: "QUEUE / RESULTS",
     preview: "PREVIEW",
     inputSource: "INPUT SOURCE",
     processing: "PROCESSING...",
     processingDesc: "Crunching data on your device.",
-    ready: "FILES READY",
+    ready: "FILES IN QUEUE",
     mergeBack: "MERGE TO PDF",
+    flattenMerge: "FLATTEN & MERGE",
     downloadZip: "DOWNLOAD ZIP",
     closePreview: "CLOSE",
     size: "Size",
@@ -55,11 +59,18 @@ const translations = {
     dropTitle: "DROP FILES HERE",
     dropDescPdf: "Upload a PDF to extract pages.",
     dropDescImg: "Upload images to merge. Drag to reorder.",
+    dropDescMerge: "Upload multiple PDFs to merge. Drag to reorder.",
+    dropDescFlatten: "Upload PDFs to flatten into images then merge.",
     browse: "BROWSE FILES",
     delete: "DEL",
     edit: "EDIT",
+    crop: "CROP",
+    rotate: "ROTATE",
+    adjust: "ADJUST",
     download: "DL",
     editor: "EDITOR",
+    addMore: "ADD FILES",
+    dropToAdd: "DROP TO ADD FILES",
     // Modal
     modalTitle: "Select Pages",
     modalDesc: "Enter page numbers or ranges to extract (e.g. 1-3, 5, 8).",
@@ -76,14 +87,17 @@ const translations = {
     heroDesc: "브라우저에서 직접 PDF를 이미지로 변환하거나 이미지를 PDF로 합치세요. 빠르고, 안전하고, 단순합니다.",
     pdfToPng: "PDF → PNG",
     pngToPdf: "PNG → PDF",
+    mergePdf: "PDF 합치기",
+    flattenPdf: "PDF 이미지 병합",
     workspace: "작업 공간",
-    results: "결과물",
+    results: "대기열 / 결과물",
     preview: "미리보기",
     inputSource: "입력 파일",
     processing: "처리 중...",
     processingDesc: "기기에서 직접 처리하고 있습니다.",
-    ready: "완료됨",
+    ready: "개의 파일 대기 중",
     mergeBack: "PDF로 합치기",
+    flattenMerge: "평탄화 및 합치기",
     downloadZip: "ZIP 다운로드",
     closePreview: "닫기",
     size: "크기",
@@ -93,11 +107,18 @@ const translations = {
     dropTitle: "파일을 여기에 놓으세요",
     dropDescPdf: "PDF를 업로드하여 이미지를 추출하세요.",
     dropDescImg: "이미지를 업로드하세요. 드래그하여 순서를 변경할 수 있습니다.",
+    dropDescMerge: "합칠 PDF 파일들을 업로드하세요. 순서를 변경할 수 있습니다.",
+    dropDescFlatten: "이미지로 변환하여 합칠 PDF들을 업로드하세요.",
     browse: "파일 찾기",
     delete: "삭제",
     edit: "편집",
+    crop: "자르기",
+    rotate: "회전",
+    adjust: "보정",
     download: "다운",
     editor: "이미지 편집",
+    addMore: "파일 추가",
+    dropToAdd: "여기에 놓아서 추가",
     // Modal
     modalTitle: "페이지 선택",
     modalDesc: "변환할 페이지 번호나 범위를 입력하세요 (예: 1-3, 5, 8).",
@@ -124,12 +145,19 @@ export default function App() {
   const [generatedFiles, setGeneratedFiles] = useState<GeneratedFile[]>([]);
   const [previewFile, setPreviewFile] = useState<GeneratedFile | null>(null);
   const [editingFile, setEditingFile] = useState<GeneratedFile | null>(null);
+  const [editorInitialMode, setEditorInitialMode] = useState<ToolMode>('draw');
   const [activeId, setActiveId] = useState<string | null>(null);
+
+  // Hidden input ref for "Add More" functionality
+  const addFilesInputRef = useRef<HTMLInputElement>(null);
 
   // New state for page selection
   const [pendingPdf, setPendingPdf] = useState<{ file: File, count: number } | null>(null);
 
   const t = (key: keyof typeof translations['en']) => translations[lang][key];
+
+  // Helper to determine layout state
+  const isPreviewMode = !!previewFile || !!editingFile;
 
   // Dnd Sensors
   const sensors = useSensors(
@@ -154,53 +182,93 @@ export default function App() {
     setPendingPdf(null);
   }, [mode]);
 
-  const handleFiles = async (files: File[]) => {
+  const handleFiles = useCallback(async (files: File[]) => {
     if (files.length === 0) return;
     
-    // Reset previous state
-    setStatus(ProcessStatus.IDLE);
-    setGeneratedFiles([]);
-    setPreviewFile(null);
-    setPendingPdf(null);
+    // For PDF splitting, we only allow one file at a time (replace workflow)
+    if (mode === ConversionMode.PDF_TO_PNG) {
+        setStatus(ProcessStatus.IDLE);
+        setGeneratedFiles([]);
+        setPreviewFile(null);
+        setPendingPdf(null);
 
-    try {
-      if (mode === ConversionMode.PDF_TO_PNG) {
-        const pdfFile = files[0];
-        // 1. Get Page Count first
-        const count = await getPdfPageCount(pdfFile);
+        try {
+            const pdfFile = files[0];
+            const count = await getPdfPageCount(pdfFile);
+            setPendingPdf({ file: pdfFile, count });
+        } catch (error) {
+            console.error(error);
+            setStatus(ProcessStatus.ERROR);
+        }
+    } else {
+        // Queue Mode (Append to list)
+        // PNG_TO_PDF, MERGE_PDF, FLATTEN_PDF
         
-        // 2. Open Modal
-        setPendingPdf({ file: pdfFile, count });
-        
-      } else {
-        // PNG_TO_PDF: Load images but DO NOT merge yet. Allow sorting.
-        setStatus(ProcessStatus.PROCESSING);
-        const fileItem: FileItem = {
-            id: Math.random().toString(36).substr(2, 9),
-            file: files[0], // Representative file
-            status: ProcessStatus.PROCESSING,
-            progress: 0,
-        };
-        setCurrentFile(fileItem);
-        
+        // If we were in IDLE, move to COMPLETED (Ready state) to show list
+        if (status === ProcessStatus.IDLE) {
+            setStatus(ProcessStatus.COMPLETED);
+        }
+
         const newFiles = files.map((f, idx) => ({
-          id: `img-${idx}-${Math.random().toString(36).substr(2, 5)}`,
-          name: f.name,
-          url: URL.createObjectURL(f),
-          blob: f
+            id: `file-${Date.now()}-${idx}-${Math.random().toString(36).substr(2, 5)}`,
+            name: f.name,
+            url: URL.createObjectURL(f),
+            blob: f
         }));
         
-        // Simulate a small delay for "processing" UX
-        setCurrentFile(prev => prev ? { ...prev, progress: 100 } : null);
-        await new Promise(r => setTimeout(r, 500));
+        setGeneratedFiles(prev => [...prev, ...newFiles]);
         
-        setGeneratedFiles(newFiles);
-        if (newFiles.length > 0) setPreviewFile(newFiles[0]);
-        setStatus(ProcessStatus.COMPLETED);
-      }
-    } catch (error) {
-      console.error(error);
-      setStatus(ProcessStatus.ERROR);
+        // Auto-preview first added file if none selected
+        if (!previewFile && newFiles.length > 0) {
+            setPreviewFile(newFiles[0]);
+        }
+    }
+  }, [mode, status, previewFile]);
+
+  // --- Paste Support ---
+  useEffect(() => {
+    const handlePaste = (e: ClipboardEvent) => {
+        // If user is editing text inside input (like in image editor), ignore
+        if ((e.target as HTMLElement).tagName === 'INPUT' || (e.target as HTMLElement).tagName === 'TEXTAREA') {
+            return;
+        }
+
+        if (e.clipboardData && e.clipboardData.items) {
+            const items = Array.from(e.clipboardData.items);
+            const files: File[] = [];
+            
+            items.forEach(item => {
+                if (item.kind === 'file') {
+                    const file = item.getAsFile();
+                    if (file) {
+                        // Check if file type matches current mode
+                        const isImage = file.type.startsWith('image/');
+                        const isPdf = file.type === 'application/pdf';
+
+                        if (mode === ConversionMode.PNG_TO_PDF && isImage) {
+                            files.push(file);
+                        } else if ((mode === ConversionMode.MERGE_PDF || mode === ConversionMode.FLATTEN_PDF) && isPdf) {
+                            files.push(file);
+                        } else if (mode === ConversionMode.PDF_TO_PNG && isPdf) {
+                            files.push(file);
+                        }
+                    }
+                }
+            });
+
+            if (files.length > 0) {
+                handleFiles(files);
+            }
+        }
+    };
+
+    window.addEventListener('paste', handlePaste);
+    return () => window.removeEventListener('paste', handlePaste);
+  }, [handleFiles, mode]);
+
+  const handleAddFilesClick = () => {
+    if (addFilesInputRef.current) {
+        addFilesInputRef.current.click();
     }
   };
 
@@ -226,7 +294,6 @@ export default function App() {
 
         const newGeneratedFiles = blobs.map((blob, idx) => ({
           id: `page-${idx}-${Math.random().toString(36).substr(2, 5)}`,
-          // Fix: Use case-insensitive regex for extension replacement
           name: `${file.name.replace(/\.pdf$/i, '')}_${pages[idx]}.png`,
           url: URL.createObjectURL(blob),
           blob: blob
@@ -244,7 +311,6 @@ export default function App() {
   const handleMerge = async () => {
     if (generatedFiles.length === 0) return;
     
-    const previousStatus = status;
     setStatus(ProcessStatus.PROCESSING);
 
     setCurrentFile({
@@ -256,18 +322,34 @@ export default function App() {
 
     try {
       const blobs = generatedFiles.map(f => f.blob);
-      const pdfBlob = await convertImagesToPdf(blobs, (current, total) => {
-         setCurrentFile(prev => prev ? { ...prev, progress: (current / total) * 100 } : null);
-      });
+      let pdfBlob;
+      
+      if (mode === ConversionMode.MERGE_PDF) {
+        pdfBlob = await mergePdfs(blobs, (current, total) => {
+           setCurrentFile(prev => prev ? { ...prev, progress: (current / total) * 100 } : null);
+        });
+      } else if (mode === ConversionMode.FLATTEN_PDF) {
+        pdfBlob = await flattenPdfs(blobs, (current, total) => {
+           setCurrentFile(prev => prev ? { ...prev, progress: (current / total) * 100 } : null);
+        });
+      } else {
+        // PNG_TO_PDF
+        pdfBlob = await convertImagesToPdf(blobs, (current, total) => {
+           setCurrentFile(prev => prev ? { ...prev, progress: (current / total) * 100 } : null);
+        });
+      }
       
       const url = URL.createObjectURL(pdfBlob);
       let filename = 'merged-document.pdf';
       if (generatedFiles.length > 0) {
-        // Try to base name on first file
         const first = generatedFiles[0].name;
-        // Simple extension removal
         const base = first.replace(/\.[^/.]+$/, "");
-        filename = `${base}_merged.pdf`;
+        
+        if (mode === ConversionMode.FLATTEN_PDF) {
+            filename = `${base}_flattened.pdf`;
+        } else {
+            filename = `${base}_merged.pdf`;
+        }
       }
 
       handleDownload(url, filename);
@@ -326,7 +408,31 @@ export default function App() {
     setEditingFile(null);
   };
 
-  // Drag and Drop Handlers
+  const handleQuickRotate = async () => {
+    if (!previewFile) return;
+    try {
+        const rotatedBlob = await rotateImage(previewFile.blob);
+        const newUrl = URL.createObjectURL(rotatedBlob);
+        
+        setGeneratedFiles(prev => prev.map(f => {
+            if (f.id === previewFile.id) {
+                URL.revokeObjectURL(f.url);
+                return { ...f, blob: rotatedBlob, url: newUrl };
+            }
+            return f;
+        }));
+        setPreviewFile({ ...previewFile, blob: rotatedBlob, url: newUrl });
+    } catch (e) {
+        console.error("Rotation failed", e);
+    }
+  };
+
+  const openEditor = (mode: ToolMode) => {
+    if (!previewFile) return;
+    setEditorInitialMode(mode);
+    setEditingFile(previewFile);
+  };
+
   const handleDragStart = (event: DragStartEvent) => {
     setActiveId(event.active.id as string);
   };
@@ -341,11 +447,9 @@ export default function App() {
         return arrayMove(items, oldIndex, newIndex);
       });
     }
-
     setActiveId(null);
   };
 
-  // Determine card title/icon
   const getCardTitle = () => {
     if (editingFile) return t('editor');
     if (previewFile) return t('preview');
@@ -358,11 +462,74 @@ export default function App() {
     return FileText;
   };
 
+  const isImage = (file: GeneratedFile) => {
+    const name = file.name.toLowerCase();
+    return name.endsWith('.png') || name.endsWith('.jpg') || name.endsWith('.jpeg') || name.endsWith('.webp');
+  };
+  
+  const getDropDesc = () => {
+    switch (mode) {
+        case ConversionMode.PDF_TO_PNG: return t('dropDescPdf');
+        case ConversionMode.PNG_TO_PDF: return t('dropDescImg');
+        case ConversionMode.MERGE_PDF: return t('dropDescMerge');
+        case ConversionMode.FLATTEN_PDF: return t('dropDescFlatten');
+        default: return t('dropDescPdf');
+    }
+  };
+
+  const getInputAccept = () => {
+     if (mode === ConversionMode.PNG_TO_PDF) return "image/*";
+     return "application/pdf";
+  };
+  
+  const getDropzoneAccept = (): Accept => {
+     if (mode === ConversionMode.PNG_TO_PDF) {
+         return { 
+            'image/jpeg': ['.jpg', '.jpeg'], 
+            'image/png': ['.png'], 
+            'image/webp': ['.webp'] 
+         };
+     }
+     return { 'application/pdf': ['.pdf'] };
+  };
+
+  // --- Queue View Dropzone ---
+  // This allows dropping files onto the "Results" card to append them
+  const onQueueDrop = useCallback((acceptedFiles: File[]) => {
+    handleFiles(acceptedFiles);
+  }, [handleFiles]);
+
+  const { getRootProps: getQueueRootProps, getInputProps: getQueueInputProps, isDragActive: isQueueDragActive } = useDropzone({
+    onDrop: onQueueDrop,
+    noClick: true, // Prevent clicking the container from opening file dialog
+    noKeyboard: true,
+    accept: getDropzoneAccept(),
+    multiple: true,
+    disabled: mode === ConversionMode.PDF_TO_PNG // Disable queue dropping for split mode which is single file replacement
+  });
+
   return (
     <div className="min-h-screen bg-background font-sans text-black selection:bg-primary selection:text-black">
+      {/* Hidden input for Add More functionality */}
+      <input 
+        type="file" 
+        multiple 
+        ref={addFilesInputRef}
+        onChange={(e) => {
+            if (e.target.files && e.target.files.length > 0) {
+                handleFiles(Array.from(e.target.files));
+                // Reset input value to allow adding same files again if needed
+                e.target.value = '';
+            }
+        }}
+        accept={getInputAccept()}
+        className="hidden" 
+      />
+
       {pendingPdf && (
         <PageSelectionModal
           fileName={pendingPdf.file.name}
+          fileSize={pendingPdf.file.size}
           totalPageCount={pendingPdf.count}
           onConfirm={handlePageSelectionConfirm}
           onCancel={() => setPendingPdf(null)}
@@ -412,7 +579,6 @@ export default function App() {
       <main className="max-w-7xl mx-auto px-6 py-12">
         {/* Hero Section */}
         <div className="text-center mb-16 relative">
-          {/* Decorative Elements */}
           <div className="absolute top-0 left-10 w-20 h-20 bg-yellow-200 rounded-full mix-blend-multiply filter blur-xl opacity-70 animate-blob"></div>
           <div className="absolute top-0 right-10 w-20 h-20 bg-purple-200 rounded-full mix-blend-multiply filter blur-xl opacity-70 animate-blob animation-delay-2000"></div>
 
@@ -427,7 +593,7 @@ export default function App() {
             {t('heroDesc')}
           </p>
           
-          <div className="flex flex-col md:flex-row justify-center gap-6 relative z-10">
+          <div className="flex flex-wrap justify-center gap-4 relative z-10">
             <Button 
               onClick={() => setMode(ConversionMode.PDF_TO_PNG)}
               variant={mode === ConversionMode.PDF_TO_PNG ? 'primary' : 'secondary'}
@@ -444,12 +610,28 @@ export default function App() {
             >
               <Images className="w-6 h-6" /> {t('pngToPdf')}
             </Button>
+             <Button 
+              onClick={() => setMode(ConversionMode.MERGE_PDF)}
+              variant={mode === ConversionMode.MERGE_PDF ? 'primary' : 'secondary'}
+              size="lg"
+              className={mode === ConversionMode.MERGE_PDF ? 'ring-2 ring-primary ring-offset-2' : ''}
+            >
+              <Files className="w-6 h-6" /> {t('mergePdf')}
+            </Button>
+             <Button 
+              onClick={() => setMode(ConversionMode.FLATTEN_PDF)}
+              variant={mode === ConversionMode.FLATTEN_PDF ? 'primary' : 'secondary'}
+              size="lg"
+              className={mode === ConversionMode.FLATTEN_PDF ? 'ring-2 ring-primary ring-offset-2' : ''}
+            >
+              <Layers className="w-6 h-6" /> {t('flattenPdf')}
+            </Button>
           </div>
         </div>
 
         {/* Workspace */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-          <div className="lg:col-span-2 space-y-8">
+        <div className={`grid gap-8 transition-all duration-300 ${isPreviewMode ? 'grid-cols-1' : 'grid-cols-1 lg:grid-cols-3'}`}>
+          <div className={`space-y-8 ${isPreviewMode ? 'w-full' : 'lg:col-span-2'}`}>
             <Card title={getCardTitle()} icon={getCardIcon()} className="min-h-[600px]">
               {editingFile ? (
                  <div className="h-full min-h-[500px] -m-6 border-b-0 rounded-b-xl overflow-hidden">
@@ -458,6 +640,7 @@ export default function App() {
                       onSave={handleSaveEdit} 
                       onClose={() => setEditingFile(null)} 
                       translations={translations[lang]}
+                      initialMode={editorInitialMode}
                     />
                  </div>
               ) : previewFile ? (
@@ -474,18 +657,30 @@ export default function App() {
                       <img src={previewFile.url} alt="Preview" className="max-w-full max-h-[500px] object-contain shadow-neo-lg rounded-lg border-2 border-black bg-white" />
                     )}
                   </div>
-                  <div className="mt-6 flex items-center justify-between bg-white p-4 rounded-xl border-2 border-black shadow-neo-sm">
-                    <div className="truncate pr-4">
-                      <p className="font-bold text-lg text-black">{previewFile.name}</p>
+                  <div className="mt-6 flex flex-col md:flex-row items-center justify-between bg-white p-4 rounded-xl border-2 border-black shadow-neo-sm gap-4">
+                    <div className="truncate w-full md:w-auto">
+                      <p className="font-bold text-lg text-black truncate">{previewFile.name}</p>
                       <div className="flex items-center gap-2 mt-1">
                         <span className="bg-gray-200 px-2 py-0.5 rounded text-xs font-bold border border-black">{t('size')}: {(previewFile.blob.size / 1024 / 1024).toFixed(2)} MB</span>
                       </div>
                     </div>
-                    <div className="flex gap-3 shrink-0">
-                      {(previewFile.name.toLowerCase().endsWith('.png') || previewFile.name.toLowerCase().endsWith('.jpg') || previewFile.name.toLowerCase().endsWith('.jpeg')) && (
-                        <Button onClick={() => setEditingFile(previewFile)} size="sm" variant="secondary">
-                          <Pencil size={16} /> {t('edit')}
-                        </Button>
+                    <div className="flex gap-2 shrink-0 flex-wrap justify-center">
+                      {isImage(previewFile) && (
+                        <>
+                          <Button onClick={() => openEditor('crop')} size="sm" variant="secondary" title={t('crop')} className="px-2">
+                             <Crop size={16} /> <span className="hidden sm:inline">{t('crop')}</span>
+                          </Button>
+                          <Button onClick={() => openEditor('adjust')} size="sm" variant="secondary" title={t('adjust')} className="px-2">
+                             <SlidersHorizontal size={16} /> <span className="hidden sm:inline">{t('adjust')}</span>
+                          </Button>
+                          <Button onClick={handleQuickRotate} size="sm" variant="secondary" title={t('rotate')} className="px-2">
+                             <RotateCw size={16} /> <span className="hidden sm:inline">{t('rotate')}</span>
+                          </Button>
+                          <div className="w-[1px] bg-gray-300 mx-1 h-8"></div>
+                          <Button onClick={() => openEditor('draw')} size="sm" variant="secondary">
+                            <Pencil size={16} /> {t('edit')}
+                          </Button>
+                        </>
                       )}
                       <Button onClick={() => handleDownload(previewFile.url, previewFile.name)} size="sm" variant="primary">
                         <Download size={16} /> {t('download')}
@@ -495,7 +690,6 @@ export default function App() {
                 </div>
               ) : status === ProcessStatus.PROCESSING ? (
                 <div className="flex flex-col items-center justify-center h-full min-h-[500px] text-center p-8">
-                  {/* Spinning Gear */}
                   <div className="relative mb-8 p-4">
                      <div className="absolute inset-0 bg-primary/20 rounded-full blur-xl animate-pulse"></div>
                      <Cog size={80} className="text-black animate-spin duration-3000 relative z-10" /> 
@@ -515,7 +709,6 @@ export default function App() {
                           className="h-full bg-primary rounded-md border-2 border-black transition-all duration-300 relative overflow-hidden" 
                           style={{ width: `${Math.max(2, currentFile.progress)}%` }}
                         >
-                           {/* Simple shine effect */}
                            <div className="absolute top-0 left-0 w-full h-full bg-white/20"></div>
                         </div>
                       </div>
@@ -529,7 +722,7 @@ export default function App() {
                   onFilesDropped={handleFiles} 
                   translations={{
                     dropTitle: t('dropTitle'),
-                    dropDesc: mode === ConversionMode.PDF_TO_PNG ? t('dropDescPdf') : t('dropDescImg'),
+                    dropDesc: getDropDesc(),
                     browse: t('browse')
                   }}
                 />
@@ -538,7 +731,7 @@ export default function App() {
             {!previewFile && !editingFile && <Pipeline status={status} />}
           </div>
 
-          <div className="lg:col-span-1">
+          <div className={`${isPreviewMode ? 'w-full' : 'lg:col-span-1'}`}>
             <Card title={t('results')} icon={Download} className="h-full">
               {generatedFiles.length === 0 ? (
                 <div className="flex flex-col items-center justify-center h-[400px] text-gray-400 border-2 border-dashed border-gray-300 rounded-xl bg-gray-50">
@@ -548,23 +741,43 @@ export default function App() {
                   <p className="text-sm font-bold text-center px-6">{lang === 'ko' ? '여기에 결과 파일이 나타납니다.' : 'Your files will appear here.'}</p>
                 </div>
               ) : (
-                <div className="flex flex-col h-full">
+                <div {...getQueueRootProps()} className="flex flex-col h-full relative">
+                  {/* Drop Overlay for adding files to queue */}
+                  {isQueueDragActive && (
+                      <div className="absolute inset-0 z-50 bg-primary/90 rounded-xl flex flex-col items-center justify-center animate-in fade-in duration-200 border-2 border-black m-[-1rem]">
+                          <UploadCloud size={48} className="text-white mb-2 animate-bounce" />
+                          <p className="text-xl font-black text-white uppercase tracking-wider">{t('dropToAdd')}</p>
+                      </div>
+                  )}
+                  <input {...getQueueInputProps()} />
+
                   <div className="flex items-center justify-between mb-6 bg-[#d1fae5] p-4 rounded-xl border-2 border-black shadow-neo-sm">
                     <span className="text-sm font-black text-black uppercase">{generatedFiles.length} {t('ready')}</span>
-                    <CheckCircle size={20} className="text-black" />
+                    <div className="flex gap-2">
+                        <button onClick={handleAddFilesClick} className="p-1 hover:bg-black/10 rounded-full transition-colors" title={t('addMore')}>
+                            <Plus size={20} className="text-black" />
+                        </button>
+                        <CheckCircle size={20} className="text-black" />
+                    </div>
                   </div>
                   
                   <div className="grid grid-cols-1 gap-3 mb-6">
-                    {(mode === ConversionMode.PDF_TO_PNG || mode === ConversionMode.PNG_TO_PDF) && (
-                      <Button onClick={handleMerge} className="w-full justify-between group" variant="secondary" size="sm">
-                        <span className="flex items-center gap-2"><FileStack size={16} /> {t('mergeBack')}</span>
+                    {/* Merge / Action Buttons */}
+                    {(mode === ConversionMode.MERGE_PDF || mode === ConversionMode.PNG_TO_PDF || mode === ConversionMode.FLATTEN_PDF) ? (
+                      <Button onClick={handleMerge} className="w-full justify-between group" variant="primary" size="sm">
+                        <span className="flex items-center gap-2">
+                            {mode === ConversionMode.FLATTEN_PDF ? <Layers size={16} /> : <FileStack size={16} />}
+                            {mode === ConversionMode.FLATTEN_PDF ? t('flattenMerge') : t('mergeBack')}
+                        </span>
+                        <ArrowRight size={14} className="group-hover:translate-x-1 transition-transform" />
+                      </Button>
+                    ) : (
+                       // For PDF_TO_PNG, we just offer ZIP download as we process immediately
+                       <Button onClick={handleDownloadZip} className="w-full justify-between group bg-black text-white hover:bg-gray-800" size="sm">
+                        <span className="flex items-center gap-2"><FileArchive size={16} /> {t('downloadZip')}</span>
                         <ArrowRight size={14} className="group-hover:translate-x-1 transition-transform" />
                       </Button>
                     )}
-                    <Button onClick={handleDownloadZip} className="w-full justify-between group bg-black text-white hover:bg-gray-800" size="sm">
-                      <span className="flex items-center gap-2"><FileArchive size={16} /> {t('downloadZip')}</span>
-                      <ArrowRight size={14} className="group-hover:translate-x-1 transition-transform" />
-                    </Button>
                   </div>
 
                   {/* Sortable DND Context */}
@@ -579,7 +792,7 @@ export default function App() {
                         items={generatedFiles.map(f => f.id)}
                         strategy={rectSortingStrategy}
                       >
-                        <div className="grid grid-cols-2 gap-3 pb-4">
+                        <div className={`grid gap-3 pb-4 ${isPreviewMode ? 'grid-cols-2 sm:grid-cols-4 lg:grid-cols-6' : 'grid-cols-2'}`}>
                           {generatedFiles.map((file) => (
                             <SortableFileCard 
                               key={file.id} 
@@ -591,6 +804,16 @@ export default function App() {
                               onDownload={() => handleDownload(file.url, file.name)}
                             />
                           ))}
+                          
+                          {/* Inline Add Button inside grid */}
+                          <div 
+                             onClick={handleAddFilesClick}
+                             className="aspect-square border-2 border-dashed border-gray-300 rounded-lg flex flex-col items-center justify-center text-gray-400 hover:text-primary hover:border-primary hover:bg-blue-50 cursor-pointer transition-all"
+                          >
+                             <Plus size={24} />
+                             <span className="text-[10px] font-bold uppercase mt-1">{t('addMore')}</span>
+                          </div>
+
                         </div>
                       </SortableContext>
                     </div>

@@ -16,16 +16,28 @@ interface DropZoneProps {
 
 export const DropZone: React.FC<DropZoneProps> = ({ mode, onFilesDropped, disabled, translations }) => {
   const onDrop = useCallback((acceptedFiles: File[]) => {
-    onFilesDropped(acceptedFiles);
+    if (acceptedFiles && acceptedFiles.length > 0) {
+      onFilesDropped(acceptedFiles);
+    }
   }, [onFilesDropped]);
+
+  // Use explicit MIME types instead of wildcards like 'image/*' for better OS compatibility
+  const getAcceptTypes = () => {
+    if (mode === ConversionMode.PDF_TO_PNG || mode === ConversionMode.MERGE_PDF || mode === ConversionMode.FLATTEN_PDF) {
+      return { 'application/pdf': ['.pdf'] };
+    }
+    return {
+      'image/jpeg': ['.jpg', '.jpeg'],
+      'image/png': ['.png'],
+      'image/webp': ['.webp']
+    };
+  };
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop,
     disabled,
-    accept: mode === ConversionMode.PDF_TO_PNG 
-      ? { 'application/pdf': ['.pdf'] }
-      : { 'image/*': ['.png', '.jpg', '.jpeg', '.webp'] },
-    multiple: mode === ConversionMode.PNG_TO_PDF,
+    accept: getAcceptTypes(),
+    multiple: mode !== ConversionMode.PDF_TO_PNG, // Allow multiple for everything except basic PDF split
   });
 
   return (

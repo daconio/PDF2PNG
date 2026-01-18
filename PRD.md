@@ -15,7 +15,7 @@
 *   **Input:** Support for `.pdf` files via Drag & Drop or File Browser.
 *   **Page Parsing:**
     *   Automatically detect total page count using `pdfjs-dist`.
-    *   **Page Selection Modal:**
+    *   **Page Selection Modal:** (Implemented)
         *   Triggered immediately after file drop.
         *   Allow input of ranges (e.g., "1-3") and individual pages (e.g., "1, 5, 8").
         *   Validate input against total page count.
@@ -42,13 +42,16 @@
 ### 3.3. Feature: Integrated Image Editor
 A lightweight editor available for generated PNGs or uploaded images before merging.
 *   **Tools:**
-    *   **Eraser:** Variable size brush to whiten out content.
+    *   **Eraser:** "White-out" pen to remove content.
+    *   **Pen (Freehand):** Draw freehand lines with adjustable opacity, color, and thickness.
+    *   **Shapes:** Draw Rectangles and Circles (stroke only).
+    *   **Line:** Draw straight lines.
     *   **Text:** Add text overlays.
         *   *Config:* Font Family (Pretendard, Nanum, System), Font Size, Text Color.
     *   **Crop:** UI overlay with rule-of-thirds grid. Drag to select area.
     *   **Adjust:** Brightness and Contrast sliders (50% - 150%).
     *   **Rotate:** 90-degree clockwise rotation.
-*   **History:** Undo functionality for drawing/editing actions.
+*   **History:** Robust Undo/Redo functionality allowing users to step backward and forward through editing actions.
 *   **State Management:** Save changes to Blob and update the main file list.
 
 ### 3.4. General UI/UX

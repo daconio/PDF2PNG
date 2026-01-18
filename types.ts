@@ -3,6 +3,8 @@ import React from 'react';
 export enum ConversionMode {
   PDF_TO_PNG = 'PDF_TO_PNG',
   PNG_TO_PDF = 'PNG_TO_PDF',
+  MERGE_PDF = 'MERGE_PDF',
+  FLATTEN_PDF = 'FLATTEN_PDF',
 }
 
 export enum ProcessStatus {

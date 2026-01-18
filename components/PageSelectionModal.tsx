@@ -4,6 +4,7 @@ import { Button } from './Button';
 
 interface PageSelectionModalProps {
   fileName: string;
+  fileSize?: number;
   totalPageCount: number;
   onConfirm: (pages: number[]) => void;
   onCancel: () => void;
@@ -54,6 +55,7 @@ const parsePageInput = (input: string, totalCount: number): number[] => {
 
 export const PageSelectionModal: React.FC<PageSelectionModalProps> = ({ 
   fileName, 
+  fileSize,
   totalPageCount, 
   onConfirm, 
   onCancel,
@@ -106,6 +108,7 @@ export const PageSelectionModal: React.FC<PageSelectionModalProps> = ({
           <div className="truncate pr-4">
              <p className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-0.5">File</p>
              <p className="font-bold text-black truncate">{fileName}</p>
+             {fileSize && <p className="text-[10px] text-gray-400 font-mono">{(fileSize / 1024 / 1024).toFixed(2)} MB</p>}
           </div>
           <div className="text-right shrink-0">
              <p className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-0.5">Pages</p>
