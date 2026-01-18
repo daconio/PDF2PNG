@@ -3,7 +3,7 @@ import {
   X, Save, Undo, Redo, Eraser, Type, Minus, Plus, 
   Crop, RotateCw, SlidersHorizontal, Check, MousePointer2, 
   Pen, Square, Circle as CircleIcon, Slash, ArrowRight,
-  AlignLeft, AlignCenter, AlignRight, Pipette
+  AlignLeft, AlignCenter, AlignRight, Pipette, Triangle, PaintBucket
 } from 'lucide-react';
 import { Button } from './Button';
 import { Tooltip } from './Tooltip';
@@ -27,7 +27,7 @@ const FONT_OPTIONS = [
   { label: 'System', value: '-apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Malgun Gothic", sans-serif' },
 ];
 
-type DrawingTool = 'eraser' | 'text' | 'pen' | 'line' | 'arrow' | 'rect' | 'circle' | 'eyedropper';
+type DrawingTool = 'eraser' | 'text' | 'pen' | 'line' | 'arrow' | 'rect' | 'circle' | 'triangle' | 'eyedropper';
 
 export const ImageEditor: React.FC<ImageEditorProps> = ({ file, onSave, onClose, initialMode = 'draw' }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -51,6 +51,7 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ file, onSave, onClose,
   
   // Drawing State
   const [drawTool, setDrawTool] = useState<DrawingTool>('pen');
+  const [isFilled, setIsFilled] = useState(false);
   
   // Tool Config
   const [strokeSize, setStrokeSize] = useState(5);
@@ -249,6 +250,7 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ file, onSave, onClose,
     tempCtx.lineJoin = 'round';
     tempCtx.lineWidth = strokeSize;
     tempCtx.strokeStyle = strokeColor;
+    tempCtx.fillStyle = strokeColor;
     tempCtx.globalAlpha = opacity / 100;
     
     if (drawTool === 'pen' || drawTool === 'eraser') {
@@ -289,7 +291,7 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ file, onSave, onClose,
         const dx = x - startX;
         const dy = y - startY;
 
-        if (drawTool === 'rect' || drawTool === 'circle') {
+        if (drawTool === 'rect' || drawTool === 'circle' || drawTool === 'triangle') {
             // Constrain to perfect square/circle (1:1 aspect ratio)
             const side = Math.max(Math.abs(dx), Math.abs(dy));
             currentX = startX + (dx >= 0 ? side : -side);
@@ -333,8 +335,25 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ file, onSave, onClose,
             Math.abs(h / 2), 
             0, 0, 2 * Math.PI
         );
+      } else if (drawTool === 'triangle') {
+        const topX = startX + w / 2;
+        const topY = startY;
+        const leftX = startX;
+        const leftY = startY + h;
+        const rightX = startX + w;
+        const rightY = startY + h;
+
+        tempCtx.moveTo(topX, topY);
+        tempCtx.lineTo(rightX, rightY);
+        tempCtx.lineTo(leftX, leftY);
+        tempCtx.closePath();
       }
-      tempCtx.stroke();
+
+      if (isFilled && ['rect', 'circle', 'triangle'].includes(drawTool)) {
+          tempCtx.fill();
+      } else {
+          tempCtx.stroke();
+      }
     }
   };
 
@@ -348,7 +367,7 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ file, onSave, onClose,
       }
 
       // If shape tool, commit temp canvas to main canvas
-      if ((drawTool === 'rect' || drawTool === 'circle' || drawTool === 'line' || drawTool === 'arrow') && tempCanvasRef.current && ctx && tempCtx) {
+      if ((['rect', 'circle', 'line', 'arrow', 'triangle'].includes(drawTool)) && tempCanvasRef.current && ctx && tempCtx) {
           ctx.drawImage(tempCanvasRef.current, 0, 0);
           tempCtx.clearRect(0, 0, tempCanvasRef.current.width, tempCanvasRef.current.height);
       }
@@ -564,6 +583,10 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ file, onSave, onClose,
                 <button onClick={() => { setMode('draw'); setDrawTool('circle'); setTextInput(null); }} className={`p-2 hover:bg-gray-100 ${mode === 'draw' && drawTool === 'circle' ? 'bg-blue-100 text-blue-700' : ''}`}><CircleIcon size={20} /></button>
               </Tooltip>
               <div className="w-[1px] bg-gray-200"></div>
+              <Tooltip content="Triangle">
+                <button onClick={() => { setMode('draw'); setDrawTool('triangle'); setTextInput(null); }} className={`p-2 hover:bg-gray-100 ${mode === 'draw' && drawTool === 'triangle' ? 'bg-blue-100 text-blue-700' : ''}`}><Triangle size={20} /></button>
+              </Tooltip>
+              <div className="w-[1px] bg-gray-200"></div>
               <Tooltip content="Text">
                 <button onClick={() => { setMode('draw'); setDrawTool('text'); }} className={`p-2 hover:bg-gray-100 ${mode === 'draw' && drawTool === 'text' ? 'bg-blue-100 text-blue-700' : ''}`}><Type size={20} /></button>
               </Tooltip>
@@ -603,6 +626,18 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ file, onSave, onClose,
                         <div className="w-[1px] h-4 bg-gray-300 mx-1"></div>
                         <input type="color" value={strokeColor} onChange={(e) => setStrokeColor(e.target.value)} className="w-6 h-6 border-0 p-0 rounded cursor-pointer" title="Color" />
                     </>
+                 )}
+
+                 {/* Shape Fill Toggle */}
+                 {['rect', 'circle', 'triangle'].includes(drawTool) && (
+                     <>
+                        <div className="w-[1px] h-4 bg-gray-300 mx-1"></div>
+                        <Tooltip content={isFilled ? "Filled" : "Outline"}>
+                            <button onClick={() => setIsFilled(!isFilled)} className={`p-1 rounded ${isFilled ? 'bg-black text-white' : 'hover:bg-gray-100 text-black'}`}>
+                                <PaintBucket size={16} />
+                            </button>
+                        </Tooltip>
+                     </>
                  )}
 
                  {/* Opacity for Pen and Shapes */}

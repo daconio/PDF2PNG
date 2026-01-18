@@ -27,6 +27,25 @@ export default {
       },
       translate: {
         'box': '4px',
+      },
+      animation: {
+        'wiggle': 'wiggle 0.3s ease-in-out',
+        'pop-in': 'popIn 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards',
+        'dash': 'dash 1s linear infinite',
+      },
+      keyframes: {
+        wiggle: {
+          '0%, 100%': { transform: 'rotate(-3deg)' },
+          '50%': { transform: 'rotate(3deg)' },
+        },
+        popIn: {
+          '0%': { opacity: '0', transform: 'scale(0.9)' },
+          '100%': { opacity: '1', transform: 'scale(1)' },
+        },
+        dash: {
+          '0%': { backgroundPosition: '0 0' },
+          '100%': { backgroundPosition: '40px 40px' },
+        }
       }
     }
   },

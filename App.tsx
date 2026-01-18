@@ -900,8 +900,8 @@ export default function App() {
 
         {/* Workspace */}
         <div className={`grid gap-8 transition-all duration-300 ${isPreviewMode ? 'grid-cols-1' : 'grid-cols-1 lg:grid-cols-3'}`}>
-          <div className={`space-y-8 ${isPreviewMode ? 'w-full' : 'lg:col-span-2'}`}>
-            <Card title={getCardTitle()} icon={getCardIcon()} className="min-h-[600px]">
+          <div className={`flex flex-col gap-8 h-full ${isPreviewMode ? 'w-full' : 'lg:col-span-2'}`}>
+            <Card title={getCardTitle()} icon={getCardIcon()} className="min-h-[600px] flex-1">
               {editingFile ? (
                  <div className="h-full min-h-[500px] -m-6 border-b-0 rounded-b-xl overflow-hidden">
                     <ImageEditor 

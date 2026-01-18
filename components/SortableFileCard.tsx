@@ -71,7 +71,7 @@ export const SortableFileCard: React.FC<SortableFileCardProps> = ({
       style={style}
       {...attributes} 
       {...listeners}
-      className={`group relative border-2 border-black rounded-lg bg-white overflow-hidden transition-all hover:shadow-neo cursor-grab active:cursor-grabbing ${
+      className={`group relative border-2 border-black rounded-lg bg-white overflow-hidden transition-all duration-300 hover:shadow-neo-lg hover:-translate-y-1 hover:-translate-x-1 cursor-grab active:cursor-grabbing animate-pop-in ${
         isActive ? 'bg-blue-50 ring-2 ring-primary ring-offset-2' : ''
       }`}
     >
@@ -80,30 +80,30 @@ export const SortableFileCard: React.FC<SortableFileCardProps> = ({
         className="aspect-square bg-gray-100 flex items-center justify-center relative border-b-2 border-black overflow-hidden"
       >
         {showThumbnail ? (
-          <img src={file.url} alt={file.name} className="w-full h-full object-cover pointer-events-none select-none" />
+          <img src={file.url} alt={file.name} className="w-full h-full object-cover pointer-events-none select-none transition-transform duration-500 group-hover:scale-110" />
         ) : (
-          <FileText size={32} className="text-gray-400" />
+          <FileText size={32} className="text-gray-400 transition-transform duration-300 group-hover:scale-110 group-hover:text-primary" />
         )}
-        <div className="absolute inset-0 bg-black/10 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center pointer-events-none">
-          <Eye size={24} className="text-white drop-shadow-md" />
+        <div className="absolute inset-0 bg-black/10 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center pointer-events-none backdrop-blur-[1px]">
+          <Eye size={24} className="text-white drop-shadow-md transform scale-50 group-hover:scale-100 transition-transform duration-200" />
         </div>
         
-        {/* Visual Grip Indicator (no listeners needed as parent has them) */}
-        <div className="absolute top-2 left-2 z-20 p-1 bg-white/80 backdrop-blur border border-black rounded text-black/50">
+        {/* Visual Grip Indicator */}
+        <div className="absolute top-2 left-2 z-20 p-1 bg-white/80 backdrop-blur border border-black rounded text-black/50 group-hover:text-black transition-colors">
             <GripVertical size={14} />
         </div>
       </div>
       
-      {/* Footer Area - disable dragging here to allow text selection and button clicking without drag interference */}
-      <div className="p-2 space-y-2 cursor-default" onPointerDown={(e) => e.stopPropagation()}>
+      {/* Footer Area */}
+      <div className="p-2 space-y-2 cursor-default bg-white relative z-10" onPointerDown={(e) => e.stopPropagation()}>
         <div className="truncate">
-          <p className="text-xs font-bold text-black truncate select-none" title={file.name}>{file.name}</p>
+          <p className="text-xs font-bold text-black truncate select-none transition-colors group-hover:text-primary" title={file.name}>{file.name}</p>
           <p className="text-[10px] text-gray-600 font-mono select-none">{(file.blob.size / 1024).toFixed(0)} KB</p>
         </div>
         <div className="flex gap-1">
           <Tooltip content={translations?.delete || "Delete"} className="flex-1">
             <button
-              className="w-full flex items-center justify-center bg-[#fca5a5] border border-black rounded py-1 hover:bg-[#f87171] transition-colors"
+              className="w-full flex items-center justify-center bg-[#fca5a5] border border-black rounded py-1 hover:bg-[#f87171] transition-all hover:shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] active:shadow-none active:translate-x-[1px] active:translate-y-[1px]"
               onClick={(e) => handleAction(e, onDelete)}
               onPointerDown={(e) => e.stopPropagation()}
             >
@@ -113,7 +113,7 @@ export const SortableFileCard: React.FC<SortableFileCardProps> = ({
           
           <Tooltip content={translations?.download || "Download"} className="flex-1">
             <button
-              className="w-full flex items-center justify-center bg-white border border-black rounded py-1 hover:bg-gray-50 transition-colors"
+              className="w-full flex items-center justify-center bg-white border border-black rounded py-1 hover:bg-gray-50 transition-all hover:shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] active:shadow-none active:translate-x-[1px] active:translate-y-[1px]"
               onClick={(e) => handleAction(e, onDownload)}
               onPointerDown={(e) => e.stopPropagation()}
             >
@@ -131,7 +131,7 @@ export const FileCardOverlay: React.FC<Omit<SortableFileCardProps, 'onPreview' |
   const showThumbnail = isImageFile(file);
   
   return (
-    <div className="border-2 border-black rounded-lg bg-white overflow-hidden shadow-neo-lg scale-105 cursor-grabbing">
+    <div className="border-2 border-black rounded-lg bg-white overflow-hidden shadow-neo-lg scale-110 cursor-grabbing rotate-3 transition-transform">
       <div className="aspect-square bg-gray-100 flex items-center justify-center relative border-b-2 border-black overflow-hidden">
         {showThumbnail ? (
           <img src={file.url} alt={file.name} className="w-full h-full object-cover" />

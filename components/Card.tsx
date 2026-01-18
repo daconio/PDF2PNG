@@ -10,7 +10,7 @@ interface CardProps {
 
 export const Card: React.FC<CardProps> = ({ children, className = '', title, icon: Icon, action }) => {
   return (
-    <div className={`bg-white border-2 border-black rounded-xl shadow-neo p-6 flex flex-col h-full ${className}`}>
+    <div className={`bg-white border-2 border-black rounded-xl shadow-neo p-6 flex flex-col ${className}`}>
       {(title || Icon || action) && (
         <div className="flex items-center justify-between mb-6 pb-4 border-b-2 border-black/10">
           <div className="flex items-center gap-3">
