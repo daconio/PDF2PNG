@@ -23,7 +23,7 @@ export const DropZone: React.FC<DropZoneProps> = ({ mode, onFilesDropped, disabl
 
   // Use explicit MIME types instead of wildcards like 'image/*' for better OS compatibility
   const getAcceptTypes = () => {
-    if (mode === ConversionMode.PDF_TO_PNG || mode === ConversionMode.MERGE_PDF || mode === ConversionMode.FLATTEN_PDF) {
+    if (mode === ConversionMode.PDF_TO_PNG || mode === ConversionMode.MERGE_PDF || mode === ConversionMode.FLATTEN_PDF || mode === ConversionMode.SPLIT_PDF) {
       return { 'application/pdf': ['.pdf'] };
     }
     return {
@@ -37,7 +37,7 @@ export const DropZone: React.FC<DropZoneProps> = ({ mode, onFilesDropped, disabl
     onDrop,
     disabled,
     accept: getAcceptTypes(),
-    multiple: mode !== ConversionMode.PDF_TO_PNG, // Allow multiple for everything except basic PDF split
+    multiple: mode !== ConversionMode.PDF_TO_PNG && mode !== ConversionMode.SPLIT_PDF, // Allow multiple for everything except basic PDF split/image extraction which are single file
   });
 
   return (

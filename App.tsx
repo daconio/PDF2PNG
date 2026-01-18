@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { Layout, Images, FileText, CheckCircle, ArrowRight, Download, Github, FileArchive, X, Eye, Pencil, FileStack, Globe, Cog, Crop, RotateCw, SlidersHorizontal, Files, Layers, Plus, UploadCloud } from 'lucide-react';
+import { Layout, Images, FileText, CheckCircle, ArrowRight, Download, Github, FileArchive, X, Eye, Pencil, FileStack, Globe, Cog, Crop, RotateCw, SlidersHorizontal, Files, Layers, Plus, UploadCloud, Scissors } from 'lucide-react';
 import { useDropzone, Accept } from 'react-dropzone';
 import { 
   DndContext, 
@@ -19,7 +19,7 @@ import {
 } from '@dnd-kit/sortable';
 
 import { ConversionMode, ProcessStatus, FileItem } from './types';
-import { convertPdfToPng, convertImagesToPdf, getPdfPageCount, rotateImage, mergePdfs, flattenPdfs } from './services/pdfService';
+import { convertPdfToPng, convertImagesToPdf, getPdfPageCount, rotateImage, mergePdfs, flattenPdfs, splitPdf } from './services/pdfService';
 import { Button } from './components/Button';
 import { Card } from './components/Card';
 import { DropZone } from './components/DropZone';
@@ -41,6 +41,7 @@ const translations = {
     pngToPdf: "PNG to PDF",
     mergePdf: "Merge PDF",
     flattenPdf: "Flatten PDF",
+    splitPdf: "Split PDF",
     workspace: "WORKSPACE",
     results: "QUEUE / RESULTS",
     preview: "PREVIEW",
@@ -61,6 +62,7 @@ const translations = {
     dropDescImg: "Upload images to merge. Drag to reorder.",
     dropDescMerge: "Upload multiple PDFs to merge. Drag to reorder.",
     dropDescFlatten: "Upload PDFs to flatten into images then merge.",
+    dropDescSplit: "Upload a PDF to split pages.",
     browse: "BROWSE FILES",
     delete: "DEL",
     edit: "EDIT",
@@ -89,6 +91,7 @@ const translations = {
     pngToPdf: "PNG → PDF",
     mergePdf: "PDF 합치기",
     flattenPdf: "PDF 이미지 병합",
+    splitPdf: "PDF 분할",
     workspace: "작업 공간",
     results: "대기열 / 결과물",
     preview: "미리보기",
@@ -109,6 +112,7 @@ const translations = {
     dropDescImg: "이미지를 업로드하세요. 드래그하여 순서를 변경할 수 있습니다.",
     dropDescMerge: "합칠 PDF 파일들을 업로드하세요. 순서를 변경할 수 있습니다.",
     dropDescFlatten: "이미지로 변환하여 합칠 PDF들을 업로드하세요.",
+    dropDescSplit: "분할할 PDF를 업로드하세요.",
     browse: "파일 찾기",
     delete: "삭제",
     edit: "편집",
@@ -185,8 +189,8 @@ export default function App() {
   const handleFiles = useCallback(async (files: File[]) => {
     if (files.length === 0) return;
     
-    // For PDF splitting, we only allow one file at a time (replace workflow)
-    if (mode === ConversionMode.PDF_TO_PNG) {
+    // For PDF splitting or PDF to PNG, we only allow one file at a time (replace workflow)
+    if (mode === ConversionMode.PDF_TO_PNG || mode === ConversionMode.SPLIT_PDF) {
         setStatus(ProcessStatus.IDLE);
         setGeneratedFiles([]);
         setPreviewFile(null);
@@ -249,7 +253,7 @@ export default function App() {
                             files.push(file);
                         } else if ((mode === ConversionMode.MERGE_PDF || mode === ConversionMode.FLATTEN_PDF) && isPdf) {
                             files.push(file);
-                        } else if (mode === ConversionMode.PDF_TO_PNG && isPdf) {
+                        } else if ((mode === ConversionMode.PDF_TO_PNG || mode === ConversionMode.SPLIT_PDF) && isPdf) {
                             files.push(file);
                         }
                     }
@@ -288,13 +292,23 @@ export default function App() {
     setCurrentFile(fileItem);
 
     try {
-        const blobs = await convertPdfToPng(file, (current, total) => {
-          setCurrentFile(prev => prev ? { ...prev, progress: (current / total) * 100 } : null);
-        }, pages);
+        let blobs: Blob[] = [];
+        
+        if (mode === ConversionMode.SPLIT_PDF) {
+            blobs = await splitPdf(file, pages, (current, total) => {
+                setCurrentFile(prev => prev ? { ...prev, progress: (current / total) * 100 } : null);
+            });
+        } else {
+            // PDF_TO_PNG
+            blobs = await convertPdfToPng(file, (current, total) => {
+                setCurrentFile(prev => prev ? { ...prev, progress: (current / total) * 100 } : null);
+            }, pages);
+        }
 
+        const extension = mode === ConversionMode.SPLIT_PDF ? 'pdf' : 'png';
         const newGeneratedFiles = blobs.map((blob, idx) => ({
           id: `page-${idx}-${Math.random().toString(36).substr(2, 5)}`,
-          name: `${file.name.replace(/\.pdf$/i, '')}_${pages[idx]}.png`,
+          name: `${file.name.replace(/\.pdf$/i, '')}_${pages[idx]}.${extension}`,
           url: URL.createObjectURL(blob),
           blob: blob
         }));
@@ -473,6 +487,7 @@ export default function App() {
         case ConversionMode.PNG_TO_PDF: return t('dropDescImg');
         case ConversionMode.MERGE_PDF: return t('dropDescMerge');
         case ConversionMode.FLATTEN_PDF: return t('dropDescFlatten');
+        case ConversionMode.SPLIT_PDF: return t('dropDescSplit');
         default: return t('dropDescPdf');
     }
   };
@@ -505,7 +520,7 @@ export default function App() {
     noKeyboard: true,
     accept: getDropzoneAccept(),
     multiple: true,
-    disabled: mode === ConversionMode.PDF_TO_PNG // Disable queue dropping for split mode which is single file replacement
+    disabled: mode === ConversionMode.PDF_TO_PNG || mode === ConversionMode.SPLIT_PDF // Disable queue dropping for split/extract modes
   });
 
   return (
@@ -609,6 +624,14 @@ export default function App() {
               className={mode === ConversionMode.PNG_TO_PDF ? 'ring-2 ring-primary ring-offset-2' : ''}
             >
               <Images className="w-6 h-6" /> {t('pngToPdf')}
+            </Button>
+            <Button 
+              onClick={() => setMode(ConversionMode.SPLIT_PDF)}
+              variant={mode === ConversionMode.SPLIT_PDF ? 'primary' : 'secondary'}
+              size="lg"
+              className={mode === ConversionMode.SPLIT_PDF ? 'ring-2 ring-primary ring-offset-2' : ''}
+            >
+              <Scissors className="w-6 h-6" /> {t('splitPdf')}
             </Button>
              <Button 
               onClick={() => setMode(ConversionMode.MERGE_PDF)}
@@ -772,7 +795,7 @@ export default function App() {
                         <ArrowRight size={14} className="group-hover:translate-x-1 transition-transform" />
                       </Button>
                     ) : (
-                       // For PDF_TO_PNG, we just offer ZIP download as we process immediately
+                       // For PDF_TO_PNG and SPLIT_PDF, we just offer ZIP download as we process immediately
                        <Button onClick={handleDownloadZip} className="w-full justify-between group bg-black text-white hover:bg-gray-800" size="sm">
                         <span className="flex items-center gap-2"><FileArchive size={16} /> {t('downloadZip')}</span>
                         <ArrowRight size={14} className="group-hover:translate-x-1 transition-transform" />

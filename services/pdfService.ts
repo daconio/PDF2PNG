@@ -164,6 +164,34 @@ export const mergePdfs = async (
 };
 
 /**
+ * Splits a PDF file into individual PDF files for specified pages.
+ */
+export const splitPdf = async (
+  file: Blob,
+  pages: number[],
+  onProgress: (current: number, total: number) => void
+): Promise<Blob[]> => {
+  const arrayBuffer = await file.arrayBuffer();
+  const srcPdf = await PDFDocument.load(arrayBuffer);
+  const resultBlobs: Blob[] = [];
+
+  for (let i = 0; i < pages.length; i++) {
+    const pageNum = pages[i]; // 1-based page number
+    const newPdf = await PDFDocument.create();
+    
+    // copyPages takes 0-based indices
+    const [copiedPage] = await newPdf.copyPages(srcPdf, [pageNum - 1]);
+    newPdf.addPage(copiedPage);
+    
+    const pdfBytes = await newPdf.save();
+    resultBlobs.push(new Blob([pdfBytes], { type: 'application/pdf' }));
+    
+    onProgress(i + 1, pages.length);
+  }
+  return resultBlobs;
+};
+
+/**
  * Memory-efficiently converts PDFs to Images and then immediately into a single PDF.
  * This effectively "flattens" the PDFs.
  */

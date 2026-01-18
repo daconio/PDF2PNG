@@ -5,6 +5,7 @@ export enum ConversionMode {
   PNG_TO_PDF = 'PNG_TO_PDF',
   MERGE_PDF = 'MERGE_PDF',
   FLATTEN_PDF = 'FLATTEN_PDF',
+  SPLIT_PDF = 'SPLIT_PDF',
 }
 
 export enum ProcessStatus {
