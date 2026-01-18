@@ -1,5 +1,5 @@
 import React, { useCallback } from 'react';
-import { useDropzone } from 'react-dropzone';
+import { useDropzone, Accept } from 'react-dropzone';
 import { UploadCloud, FileType } from 'lucide-react';
 import { ConversionMode } from '../types';
 
@@ -22,7 +22,7 @@ export const DropZone: React.FC<DropZoneProps> = ({ mode, onFilesDropped, disabl
   }, [onFilesDropped]);
 
   // Use explicit MIME types instead of wildcards like 'image/*' for better OS compatibility
-  const getAcceptTypes = () => {
+  const getAcceptTypes = (): Accept => {
     if (mode === ConversionMode.PDF_TO_PNG || mode === ConversionMode.MERGE_PDF || mode === ConversionMode.FLATTEN_PDF || mode === ConversionMode.SPLIT_PDF) {
       return { 'application/pdf': ['.pdf'] };
     }

@@ -236,7 +236,7 @@ export default function App() {
       },
     }),
     useSensor(KeyboardSensor, {
-        coordinateGetter: (_event, _args) => {
+        coordinateGetter: (_event: any, _args: any) => {
             return { x: 0, y: 0 };
         }
     })

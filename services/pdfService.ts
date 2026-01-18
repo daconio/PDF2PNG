@@ -1,6 +1,6 @@
 import * as pdfjsLib from 'pdfjs-dist';
 import { jsPDF } from 'jspdf';
-import { PDFDocument } from 'pdf-lib';
+import { PDFDocument, PDFPage } from 'pdf-lib';
 
 // Compatibility layer for different module loaders (ESM/CJS)
 // In some environments (like esm.sh), pdfjs-dist is exported as a default object wrapped in the module namespace.
@@ -181,7 +181,7 @@ export const mergePdfs = async (
     const pdf = await PDFDocument.load(arrayBuffer);
     const copiedPages = await mergedPdf.copyPages(pdf, pdf.getPageIndices());
     
-    copiedPages.forEach((page) => mergedPdf.addPage(page));
+    copiedPages.forEach((page: PDFPage) => mergedPdf.addPage(page));
     onProgress(i + 1, files.length);
   }
   
