@@ -1,16 +1,26 @@
 import React from 'react';
 
-export const Card = ({ title, children, className = '' }: any) => (
-    <div className={`bg-white border-2 border-black shadow-neo p-0 overflow-hidden ${className}`}>
-        <div className="border-b-2 border-black bg-gray-50 px-4 py-2 flex items-center justify-between">
-            <span className="font-bold uppercase tracking-wider text-sm">{title}</span>
-            <div className="flex gap-1">
-                <div className="w-2 h-2 rounded-full border border-black bg-red-400"></div>
-                <div className="w-2 h-2 rounded-full border border-black bg-yellow-400"></div>
-            </div>
-        </div>
-        <div className="p-6">
+interface CardProps {
+    children: React.ReactNode;
+    className?: string;
+    title?: string;
+    icon?: React.ElementType;
+}
+
+export const Card: React.FC<CardProps> = ({ children, className = '', title, icon: Icon }) => {
+    return (
+        <div className={`bg-white border-2 border-black shadow-neo p-6 flex flex-col h-full ${className}`}>
+            {(title || Icon) && (
+                <div className="flex items-center gap-3 mb-4">
+                    {Icon && (
+                        <div className="p-2 bg-accent rounded-full border border-black">
+                            <Icon className="w-6 h-6 text-black" />
+                        </div>
+                    )}
+                    {title && <h3 className="text-xl font-bold">{title}</h3>}
+                </div>
+            )}
             {children}
         </div>
-    </div>
-);
+    );
+};
