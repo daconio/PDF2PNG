@@ -2,7 +2,7 @@
 export default {
   content: [
     "./index.html",
-    "./**/*.{js,ts,jsx,tsx}",
+    "./src/**/*.{js,ts,jsx,tsx}",
   ],
   theme: {
     extend: {
@@ -11,22 +11,19 @@ export default {
       },
       colors: {
         primary: {
-          DEFAULT: '#88aaee',
-          hover: '#7799dd',
+          DEFAULT: '#3b82f6', // Royal Blue
+          hover: '#2563eb',
         },
         secondary: '#aaddaa',
         accent: '#ffcc00',
         surface: '#FFFFFF',
-        background: '#f8f9fa',
+        background: '#FFF0F0', // Mist Rose
         border: '#000000',
       },
       boxShadow: {
-        'neo': '4px 4px 0px 0px rgba(0,0,0,1)',
+        'neo': '0 0 0 0 rgba(0,0,0,0)', // Clean flat style
         'neo-sm': '2px 2px 0px 0px rgba(0,0,0,1)',
         'neo-lg': '8px 8px 0px 0px rgba(0,0,0,1)',
-      },
-      translate: {
-        'box': '4px',
       }
     }
   },

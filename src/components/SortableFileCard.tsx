@@ -2,7 +2,6 @@ import React from 'react';
 import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { FileText, Eye, Trash2, Download, GripVertical } from 'lucide-react';
-import { Button } from './Button';
 import { Tooltip } from './Tooltip';
 
 interface SortableFileCardProps {
@@ -25,7 +24,7 @@ interface SortableFileCardProps {
 // Robust image check: checks blob type or file extension (case-insensitive)
 const isImageFile = (file: { name: string; blob: Blob }) => {
   if (file.blob && file.blob.type && file.blob.type !== 'application/octet-stream') {
-     return file.blob.type.startsWith('image/');
+    return file.blob.type.startsWith('image/');
   }
   return /\.(jpg|jpeg|png|webp|gif|bmp|svg)$/i.test(file.name);
 };
@@ -61,20 +60,19 @@ export const SortableFileCard: React.FC<SortableFileCardProps> = ({
     <div
       ref={setNodeRef}
       style={style}
-      className={`group relative border-2 border-black rounded-lg bg-white overflow-hidden transition-all hover:shadow-neo ${
-        isActive ? 'bg-blue-50 ring-2 ring-primary ring-offset-2' : ''
-      }`}
+      className={`group relative border-2 border-black rounded-lg bg-white overflow-hidden transition-all hover:shadow-neo ${isActive ? 'bg-blue-50 ring-2 ring-primary ring-offset-2' : ''
+        }`}
     >
-        {/* Drag Handle */}
-        <div 
-            {...attributes} 
-            {...listeners}
-            className="absolute top-2 left-2 z-20 p-1.5 bg-white/80 backdrop-blur border border-black rounded cursor-grab active:cursor-grabbing hover:bg-gray-100 opacity-0 group-hover:opacity-100 transition-opacity"
-        >
-            <GripVertical size={16} />
-        </div>
+      {/* Drag Handle */}
+      <div
+        {...attributes}
+        {...listeners}
+        className="absolute top-2 left-2 z-20 p-1.5 bg-white/80 backdrop-blur border border-black rounded cursor-grab active:cursor-grabbing hover:bg-gray-100 opacity-0 group-hover:opacity-100 transition-opacity"
+      >
+        <GripVertical size={16} />
+      </div>
 
-      <div 
+      <div
         onClick={onPreview}
         className="aspect-square bg-gray-100 flex items-center justify-center relative border-b-2 border-black cursor-pointer overflow-hidden"
       >
@@ -87,7 +85,7 @@ export const SortableFileCard: React.FC<SortableFileCardProps> = ({
           <Eye size={24} className="text-white drop-shadow-md" />
         </div>
       </div>
-      
+
       <div className="p-2 space-y-2">
         <div className="truncate">
           <p className="text-xs font-bold text-black truncate" title={file.name}>{file.name}</p>
@@ -102,7 +100,7 @@ export const SortableFileCard: React.FC<SortableFileCardProps> = ({
               <Trash2 size={12} className="text-black" />
             </button>
           </Tooltip>
-          
+
           <Tooltip content={translations?.download || "Download"} className="flex-1">
             <button
               className="w-full flex items-center justify-center bg-white border border-black rounded py-1 hover:bg-gray-50 transition-colors"
@@ -120,7 +118,7 @@ export const SortableFileCard: React.FC<SortableFileCardProps> = ({
 // Simple Overlay component for the item while dragging
 export const FileCardOverlay: React.FC<Omit<SortableFileCardProps, 'onPreview' | 'onDelete' | 'onDownload'>> = ({ file }) => {
   const showThumbnail = isImageFile(file);
-  
+
   return (
     <div className="border-2 border-black rounded-lg bg-white overflow-hidden shadow-neo-lg scale-105 cursor-grabbing">
       <div className="aspect-square bg-gray-100 flex items-center justify-center relative border-b-2 border-black overflow-hidden">

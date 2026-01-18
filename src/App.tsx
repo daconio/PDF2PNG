@@ -1,21 +1,21 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { Layout, Images, FileText, CheckCircle, ArrowRight, Download, Github, FileArchive, X, Eye, Pencil, FileStack, Globe, Cog, Crop, RotateCw, SlidersHorizontal, Files, Layers, Plus, UploadCloud, Scissors, ChevronDown, ChevronUp, Clock, AlertCircle } from 'lucide-react';
 import { useDropzone, Accept } from 'react-dropzone';
-import { 
-  DndContext, 
-  closestCenter, 
-  KeyboardSensor, 
-  PointerSensor, 
-  useSensor, 
-  useSensors, 
+import {
+  DndContext,
+  closestCenter,
+  KeyboardSensor,
+  PointerSensor,
+  useSensor,
+  useSensors,
   DragOverlay,
   DragEndEvent,
   DragStartEvent
 } from '@dnd-kit/core';
-import { 
-  arrayMove, 
-  SortableContext, 
-  rectSortingStrategy 
+import {
+  arrayMove,
+  SortableContext,
+  rectSortingStrategy
 } from '@dnd-kit/sortable';
 
 import { ConversionMode, ProcessStatus, FileItem } from './types';
@@ -190,17 +190,17 @@ export default function App() {
   const [lang, setLang] = useState<Language>('ko');
   const [mode, setMode] = useState<ConversionMode>(ConversionMode.PDF_TO_PNG);
   const [status, setStatus] = useState<ProcessStatus>(ProcessStatus.IDLE);
-  
+
   // Replaced single currentFile with a queue
   const [queue, setQueue] = useState<FileItem[]>([]);
-  
+
   const [generatedFiles, setGeneratedFiles] = useState<GeneratedFile[]>([]);
   const [previewFile, setPreviewFile] = useState<GeneratedFile | null>(null);
   const [editingFile, setEditingFile] = useState<GeneratedFile | null>(null);
   const [editorInitialMode, setEditorInitialMode] = useState<ToolMode>('draw');
   const [activeId, setActiveId] = useState<string | null>(null);
   const [quality, setQuality] = useState(0.9);
-  
+
   // Collapsed state for Results panel
   const [isResultsCollapsed, setIsResultsCollapsed] = useState(false);
 
@@ -232,9 +232,9 @@ export default function App() {
       },
     }),
     useSensor(KeyboardSensor, {
-        coordinateGetter: (event, args) => {
-            return { x: 0, y: 0 };
-        }
+      coordinateGetter: () => {
+        return { x: 0, y: 0 };
+      }
     })
   );
 
@@ -252,188 +252,188 @@ export default function App() {
   // Watches the queue and processes files sequentially
   useEffect(() => {
     const processNextInQueue = async () => {
-        // Find the next item that is QUEUED
-        const nextItemIndex = queue.findIndex(item => item.status === ProcessStatus.QUEUED);
-        
-        // If nothing to process or something is currently processing, return
-        if (nextItemIndex === -1 || queue.some(item => item.status === ProcessStatus.PROCESSING)) {
-            return;
+      // Find the next item that is QUEUED
+      const nextItemIndex = queue.findIndex(item => item.status === ProcessStatus.QUEUED);
+
+      // If nothing to process or something is currently processing, return
+      if (nextItemIndex === -1 || queue.some(item => item.status === ProcessStatus.PROCESSING)) {
+        return;
+      }
+
+      const item = queue[nextItemIndex];
+
+      // Update status to PROCESSING
+      setQueue(prev => {
+        const newQ = [...prev];
+        newQ[nextItemIndex] = { ...newQ[nextItemIndex], status: ProcessStatus.PROCESSING, progress: 0 };
+        return newQ;
+      });
+
+      // Set overall app status
+      setStatus(ProcessStatus.PROCESSING);
+
+      try {
+        let blobs: Blob[] = [];
+
+        if (mode === ConversionMode.SPLIT_PDF) {
+          // For Split, if we auto-queued, we assume "All Pages" (1 to count)
+          // If it came from modal, we might have specific pages logic, but for batch queue let's default to all or single PDF logic
+          // NOTE: To simplify batch processing, we split ALL pages for batch files.
+          const count = await getPdfPageCount(item.file);
+          const pages = Array.from({ length: count }, (_, i) => i + 1);
+
+          blobs = await splitPdf(item.file, pages, (current, total) => {
+            setQueue(prev => {
+              const newQ = [...prev];
+              if (newQ[nextItemIndex]) {
+                newQ[nextItemIndex].progress = (current / total) * 100;
+              }
+              return newQ;
+            });
+          });
+        } else if (mode === ConversionMode.PDF_TO_PNG) {
+          // Default to all pages for queue items
+          blobs = await convertPdfToPng(item.file, (current, total) => {
+            setQueue(prev => {
+              const newQ = [...prev];
+              if (newQ[nextItemIndex]) {
+                newQ[nextItemIndex].progress = (current / total) * 100;
+              }
+              return newQ;
+            });
+          });
         }
 
-        const item = queue[nextItemIndex];
+        const extension = mode === ConversionMode.SPLIT_PDF ? 'pdf' : 'png';
+        const newGeneratedFiles = blobs.map((blob, idx) => ({
+          id: `page-${item.id}-${idx}-${Math.random().toString(36).substr(2, 5)}`,
+          name: `${item.file.name.replace(/\.pdf$/i, '')}_${idx + 1}.${extension}`,
+          url: URL.createObjectURL(blob),
+          blob: blob
+        }));
 
-        // Update status to PROCESSING
+        // Add to results
+        setGeneratedFiles(prev => [...prev, ...newGeneratedFiles]);
+
+        // Mark item as COMPLETED
         setQueue(prev => {
-            const newQ = [...prev];
-            newQ[nextItemIndex] = { ...newQ[nextItemIndex], status: ProcessStatus.PROCESSING, progress: 0 };
-            return newQ;
+          const newQ = [...prev];
+          newQ[nextItemIndex] = { ...newQ[nextItemIndex], status: ProcessStatus.COMPLETED, progress: 100 };
+          return newQ;
         });
 
-        // Set overall app status
-        setStatus(ProcessStatus.PROCESSING);
-
-        try {
-            let blobs: Blob[] = [];
-            
-            if (mode === ConversionMode.SPLIT_PDF) {
-                // For Split, if we auto-queued, we assume "All Pages" (1 to count)
-                // If it came from modal, we might have specific pages logic, but for batch queue let's default to all or single PDF logic
-                // NOTE: To simplify batch processing, we split ALL pages for batch files.
-                const count = await getPdfPageCount(item.file);
-                const pages = Array.from({ length: count }, (_, i) => i + 1);
-                
-                blobs = await splitPdf(item.file, pages, (current, total) => {
-                    setQueue(prev => {
-                        const newQ = [...prev];
-                        if (newQ[nextItemIndex]) {
-                            newQ[nextItemIndex].progress = (current / total) * 100;
-                        }
-                        return newQ;
-                    });
-                });
-            } else if (mode === ConversionMode.PDF_TO_PNG) {
-                // Default to all pages for queue items
-                blobs = await convertPdfToPng(item.file, (current, total) => {
-                     setQueue(prev => {
-                        const newQ = [...prev];
-                        if (newQ[nextItemIndex]) {
-                            newQ[nextItemIndex].progress = (current / total) * 100;
-                        }
-                        return newQ;
-                    });
-                });
-            }
-
-            const extension = mode === ConversionMode.SPLIT_PDF ? 'pdf' : 'png';
-            const newGeneratedFiles = blobs.map((blob, idx) => ({
-                id: `page-${item.id}-${idx}-${Math.random().toString(36).substr(2, 5)}`,
-                name: `${item.file.name.replace(/\.pdf$/i, '')}_${idx + 1}.${extension}`,
-                url: URL.createObjectURL(blob),
-                blob: blob
-            }));
-
-            // Add to results
-            setGeneratedFiles(prev => [...prev, ...newGeneratedFiles]);
-            
-            // Mark item as COMPLETED
-            setQueue(prev => {
-                const newQ = [...prev];
-                newQ[nextItemIndex] = { ...newQ[nextItemIndex], status: ProcessStatus.COMPLETED, progress: 100 };
-                return newQ;
-            });
-
-        } catch (error) {
-            console.error(error);
-            setQueue(prev => {
-                const newQ = [...prev];
-                newQ[nextItemIndex] = { ...newQ[nextItemIndex], status: ProcessStatus.ERROR };
-                return newQ;
-            });
-        }
+      } catch (error) {
+        console.error(error);
+        setQueue(prev => {
+          const newQ = [...prev];
+          newQ[nextItemIndex] = { ...newQ[nextItemIndex], status: ProcessStatus.ERROR };
+          return newQ;
+        });
+      }
     };
 
     // Trigger processing if we have queued items
     if (queue.some(i => i.status === ProcessStatus.QUEUED)) {
-        processNextInQueue();
+      processNextInQueue();
     } else if (queue.length > 0 && queue.every(i => i.status === ProcessStatus.COMPLETED || i.status === ProcessStatus.ERROR)) {
-        // All done
-        setStatus(ProcessStatus.COMPLETED);
+      // All done
+      setStatus(ProcessStatus.COMPLETED);
     }
   }, [queue, mode]);
 
 
   const handleFiles = useCallback(async (files: File[]) => {
     if (files.length === 0) return;
-    
+
     // For PDF splitting or PDF to PNG
     if (mode === ConversionMode.PDF_TO_PNG || mode === ConversionMode.SPLIT_PDF) {
-        // If single file, show modal to allow specific page selection
-        if (files.length === 1 && generatedFiles.length === 0 && queue.length === 0) {
-            try {
-                const pdfFile = files[0];
-                const count = await getPdfPageCount(pdfFile);
-                setPendingPdf({ file: pdfFile, count });
-                return;
-            } catch (error) {
-                console.error(error);
-                setStatus(ProcessStatus.ERROR);
-                return;
-            }
+      // If single file, show modal to allow specific page selection
+      if (files.length === 1 && generatedFiles.length === 0 && queue.length === 0) {
+        try {
+          const pdfFile = files[0];
+          const count = await getPdfPageCount(pdfFile);
+          setPendingPdf({ file: pdfFile, count });
+          return;
+        } catch (error) {
+          console.error(error);
+          setStatus(ProcessStatus.ERROR);
+          return;
         }
+      }
 
-        // Batch Mode / Add to Queue
-        // Add all files to queue with status QUEUED
-        const newQueueItems: FileItem[] = files.map(f => ({
-            id: Math.random().toString(36).substr(2, 9),
-            file: f,
-            status: ProcessStatus.QUEUED,
-            progress: 0
-        }));
+      // Batch Mode / Add to Queue
+      // Add all files to queue with status QUEUED
+      const newQueueItems: FileItem[] = files.map(f => ({
+        id: Math.random().toString(36).substr(2, 9),
+        file: f,
+        status: ProcessStatus.QUEUED,
+        progress: 0
+      }));
 
-        setQueue(prev => [...prev, ...newQueueItems]);
-        setStatus(ProcessStatus.PROCESSING);
-        setPendingPdf(null); // Ensure modal is closed
+      setQueue(prev => [...prev, ...newQueueItems]);
+      setStatus(ProcessStatus.PROCESSING);
+      setPendingPdf(null); // Ensure modal is closed
 
     } else {
-        // Queue Mode (Append to list for Merge/Flatten)
-        // PNG_TO_PDF, MERGE_PDF, FLATTEN_PDF
-        
-        // If we were in IDLE, move to COMPLETED (Ready state) to show list
-        if (status === ProcessStatus.IDLE) {
-            setStatus(ProcessStatus.COMPLETED);
-        }
+      // Queue Mode (Append to list for Merge/Flatten)
+      // PNG_TO_PDF, MERGE_PDF, FLATTEN_PDF
 
-        const newFiles = files.map((f, idx) => ({
-            id: `file-${Date.now()}-${idx}-${Math.random().toString(36).substr(2, 5)}`,
-            name: f.name,
-            url: URL.createObjectURL(f),
-            blob: f
-        }));
-        
-        setGeneratedFiles(prev => [...prev, ...newFiles]);
-        
-        // Auto-preview first added file if none selected
-        if (!previewFile && newFiles.length > 0) {
-            setPreviewFile(newFiles[0]);
-        }
+      // If we were in IDLE, move to COMPLETED (Ready state) to show list
+      if (status === ProcessStatus.IDLE) {
+        setStatus(ProcessStatus.COMPLETED);
+      }
+
+      const newFiles = files.map((f, idx) => ({
+        id: `file-${Date.now()}-${idx}-${Math.random().toString(36).substr(2, 5)}`,
+        name: f.name,
+        url: URL.createObjectURL(f),
+        blob: f
+      }));
+
+      setGeneratedFiles(prev => [...prev, ...newFiles]);
+
+      // Auto-preview first added file if none selected
+      if (!previewFile && newFiles.length > 0) {
+        setPreviewFile(newFiles[0]);
+      }
     }
   }, [mode, status, previewFile, generatedFiles.length, queue.length]);
 
   // --- Paste Support ---
   useEffect(() => {
     const handlePaste = (e: ClipboardEvent) => {
-        // If user is editing text inside input (like in image editor), ignore
-        if ((e.target as HTMLElement).tagName === 'INPUT' || (e.target as HTMLElement).tagName === 'TEXTAREA') {
-            return;
-        }
+      // If user is editing text inside input (like in image editor), ignore
+      if ((e.target as HTMLElement).tagName === 'INPUT' || (e.target as HTMLElement).tagName === 'TEXTAREA') {
+        return;
+      }
 
-        if (e.clipboardData && e.clipboardData.items) {
-            const items = Array.from(e.clipboardData.items);
-            const files: File[] = [];
-            
-            items.forEach(item => {
-                if (item.kind === 'file') {
-                    const file = item.getAsFile();
-                    if (file) {
-                        // Check if file type matches current mode
-                        const isImage = file.type.startsWith('image/');
-                        const isPdf = file.type === 'application/pdf';
+      if (e.clipboardData && e.clipboardData.items) {
+        const items = Array.from(e.clipboardData.items);
+        const files: File[] = [];
 
-                        if (mode === ConversionMode.PNG_TO_PDF && isImage) {
-                            files.push(file);
-                        } else if ((mode === ConversionMode.MERGE_PDF || mode === ConversionMode.FLATTEN_PDF) && isPdf) {
-                            files.push(file);
-                        } else if ((mode === ConversionMode.PDF_TO_PNG || mode === ConversionMode.SPLIT_PDF) && isPdf) {
-                            files.push(file);
-                        }
-                    }
-                }
-            });
+        items.forEach(item => {
+          if (item.kind === 'file') {
+            const file = item.getAsFile();
+            if (file) {
+              // Check if file type matches current mode
+              const isImage = file.type.startsWith('image/');
+              const isPdf = file.type === 'application/pdf';
 
-            if (files.length > 0) {
-                handleFiles(files);
+              if (mode === ConversionMode.PNG_TO_PDF && isImage) {
+                files.push(file);
+              } else if ((mode === ConversionMode.MERGE_PDF || mode === ConversionMode.FLATTEN_PDF) && isPdf) {
+                files.push(file);
+              } else if ((mode === ConversionMode.PDF_TO_PNG || mode === ConversionMode.SPLIT_PDF) && isPdf) {
+                files.push(file);
+              }
             }
+          }
+        });
+
+        if (files.length > 0) {
+          handleFiles(files);
         }
+      }
     };
 
     window.addEventListener('paste', handlePaste);
@@ -442,7 +442,7 @@ export default function App() {
 
   const handleAddFilesClick = () => {
     if (addFilesInputRef.current) {
-        addFilesInputRef.current.click();
+      addFilesInputRef.current.click();
     }
   };
 
@@ -452,59 +452,59 @@ export default function App() {
     setPendingPdf(null); // Close modal
 
     setStatus(ProcessStatus.PROCESSING);
-    
+
     // Create a special single-item queue for this manual selection
     // Note: We need to handle the specific page logic, which isn't in the generic queue processor
     // So for this specific flow, we might just run it directly or hack the queue.
     // Let's run it directly like before, but visualize it in the "Queue" UI by adding a dummy queue item
-    
+
     const fileItem: FileItem = {
-        id: Math.random().toString(36).substr(2, 9),
-        file: file,
-        status: ProcessStatus.PROCESSING,
-        progress: 0,
+      id: Math.random().toString(36).substr(2, 9),
+      file: file,
+      status: ProcessStatus.PROCESSING,
+      progress: 0,
     };
-    
+
     // We use setQueue to visualize it
     setQueue([fileItem]);
 
     try {
-        let blobs: Blob[] = [];
-        
-        if (mode === ConversionMode.SPLIT_PDF) {
-            blobs = await splitPdf(file, pages, (current, total) => {
-                setQueue([{...fileItem, progress: (current/total)*100}]);
-            });
-        } else {
-            // PDF_TO_PNG
-            blobs = await convertPdfToPng(file, (current, total) => {
-                setQueue([{...fileItem, progress: (current/total)*100}]);
-            }, pages);
-        }
+      let blobs: Blob[] = [];
 
-        const extension = mode === ConversionMode.SPLIT_PDF ? 'pdf' : 'png';
-        const newGeneratedFiles = blobs.map((blob, idx) => ({
-          id: `page-${idx}-${Math.random().toString(36).substr(2, 5)}`,
-          name: `${file.name.replace(/\.pdf$/i, '')}_${pages[idx]}.${extension}`,
-          url: URL.createObjectURL(blob),
-          blob: blob
-        }));
-        
-        setGeneratedFiles(newGeneratedFiles);
-        if (newGeneratedFiles.length > 0) setPreviewFile(newGeneratedFiles[0]);
-        
-        setQueue([{...fileItem, status: ProcessStatus.COMPLETED, progress: 100}]);
-        setStatus(ProcessStatus.COMPLETED);
+      if (mode === ConversionMode.SPLIT_PDF) {
+        blobs = await splitPdf(file, pages, (current, total) => {
+          setQueue([{ ...fileItem, progress: (current / total) * 100 }]);
+        });
+      } else {
+        // PDF_TO_PNG
+        blobs = await convertPdfToPng(file, (current, total) => {
+          setQueue([{ ...fileItem, progress: (current / total) * 100 }]);
+        }, pages);
+      }
+
+      const extension = mode === ConversionMode.SPLIT_PDF ? 'pdf' : 'png';
+      const newGeneratedFiles = blobs.map((blob, idx) => ({
+        id: `page-${idx}-${Math.random().toString(36).substr(2, 5)}`,
+        name: `${file.name.replace(/\.pdf$/i, '')}_${pages[idx]}.${extension}`,
+        url: URL.createObjectURL(blob),
+        blob: blob
+      }));
+
+      setGeneratedFiles(newGeneratedFiles);
+      if (newGeneratedFiles.length > 0) setPreviewFile(newGeneratedFiles[0]);
+
+      setQueue([{ ...fileItem, status: ProcessStatus.COMPLETED, progress: 100 }]);
+      setStatus(ProcessStatus.COMPLETED);
     } catch (error) {
-        console.error(error);
-        setQueue([{...fileItem, status: ProcessStatus.ERROR}]);
-        setStatus(ProcessStatus.ERROR);
+      console.error(error);
+      setQueue([{ ...fileItem, status: ProcessStatus.ERROR }]);
+      setStatus(ProcessStatus.ERROR);
     }
   };
 
   const handleMerge = async () => {
     if (generatedFiles.length === 0) return;
-    
+
     setStatus(ProcessStatus.PROCESSING);
 
     // Create a dummy queue item for the merge process
@@ -519,42 +519,42 @@ export default function App() {
     try {
       const blobs = generatedFiles.map(f => f.blob);
       let pdfBlob;
-      
+
       if (mode === ConversionMode.MERGE_PDF) {
         pdfBlob = await mergePdfs(blobs, (current, total) => {
-           setQueue([{...mergeItem, progress: (current / total) * 100}]);
+          setQueue([{ ...mergeItem, progress: (current / total) * 100 }]);
         });
       } else if (mode === ConversionMode.FLATTEN_PDF) {
         pdfBlob = await flattenPdfs(blobs, (current, total) => {
-           setQueue([{...mergeItem, progress: (current / total) * 100}]);
+          setQueue([{ ...mergeItem, progress: (current / total) * 100 }]);
         }, quality);
       } else {
         // PNG_TO_PDF
         pdfBlob = await convertImagesToPdf(blobs, (current, total) => {
-           setQueue([{...mergeItem, progress: (current / total) * 100}]);
+          setQueue([{ ...mergeItem, progress: (current / total) * 100 }]);
         }, quality);
       }
-      
+
       const url = URL.createObjectURL(pdfBlob);
       let filename = 'merged-document.pdf';
       if (generatedFiles.length > 0) {
         const first = generatedFiles[0].name;
         const base = first.replace(/\.[^/.]+$/, "");
-        
+
         if (mode === ConversionMode.FLATTEN_PDF) {
-            filename = `${base}_flattened.pdf`;
+          filename = `${base}_flattened.pdf`;
         } else {
-            filename = `${base}_merged.pdf`;
+          filename = `${base}_merged.pdf`;
         }
       }
 
       handleDownload(url, filename);
-      
-      setQueue([{...mergeItem, status: ProcessStatus.COMPLETED, progress: 100}]);
+
+      setQueue([{ ...mergeItem, status: ProcessStatus.COMPLETED, progress: 100 }]);
       setStatus(ProcessStatus.COMPLETED);
     } catch (error) {
       console.error(error);
-      setQueue([{...mergeItem, status: ProcessStatus.ERROR}]);
+      setQueue([{ ...mergeItem, status: ProcessStatus.ERROR }]);
       setStatus(ProcessStatus.ERROR);
     }
   };
@@ -564,7 +564,7 @@ export default function App() {
       const newFiles = [...prev];
       const index = newFiles.findIndex(f => f.id === id);
       if (index === -1) return prev;
-      
+
       const removedFile = newFiles.splice(index, 1)[0];
       if (previewFile?.id === removedFile.id) setPreviewFile(null);
       URL.revokeObjectURL(removedFile.url);
@@ -610,19 +610,19 @@ export default function App() {
   const handleQuickRotate = async () => {
     if (!previewFile) return;
     try {
-        const rotatedBlob = await rotateImage(previewFile.blob);
-        const newUrl = URL.createObjectURL(rotatedBlob);
-        
-        setGeneratedFiles(prev => prev.map(f => {
-            if (f.id === previewFile.id) {
-                URL.revokeObjectURL(f.url);
-                return { ...f, blob: rotatedBlob, url: newUrl };
-            }
-            return f;
-        }));
-        setPreviewFile({ ...previewFile, blob: rotatedBlob, url: newUrl });
+      const rotatedBlob = await rotateImage(previewFile.blob);
+      const newUrl = URL.createObjectURL(rotatedBlob);
+
+      setGeneratedFiles(prev => prev.map(f => {
+        if (f.id === previewFile.id) {
+          URL.revokeObjectURL(f.url);
+          return { ...f, blob: rotatedBlob, url: newUrl };
+        }
+        return f;
+      }));
+      setPreviewFile({ ...previewFile, blob: rotatedBlob, url: newUrl });
     } catch (e) {
-        console.error("Rotation failed", e);
+      console.error("Rotation failed", e);
     }
   };
 
@@ -662,35 +662,35 @@ export default function App() {
   };
 
   const isImage = (file: GeneratedFile) => {
-     if (file.blob && file.blob.type.startsWith('image/')) return true;
-     return /\.(jpg|jpeg|png|webp|gif|bmp|svg)$/i.test(file.name);
+    if (file.blob && file.blob.type.startsWith('image/')) return true;
+    return /\.(jpg|jpeg|png|webp|gif|bmp|svg)$/i.test(file.name);
   };
-  
+
   const getDropDesc = () => {
     switch (mode) {
-        case ConversionMode.PDF_TO_PNG: return t('dropDescPdf');
-        case ConversionMode.PNG_TO_PDF: return t('dropDescImg');
-        case ConversionMode.MERGE_PDF: return t('dropDescMerge');
-        case ConversionMode.FLATTEN_PDF: return t('dropDescFlatten');
-        case ConversionMode.SPLIT_PDF: return t('dropDescSplit');
-        default: return t('dropDescPdf');
+      case ConversionMode.PDF_TO_PNG: return t('dropDescPdf');
+      case ConversionMode.PNG_TO_PDF: return t('dropDescImg');
+      case ConversionMode.MERGE_PDF: return t('dropDescMerge');
+      case ConversionMode.FLATTEN_PDF: return t('dropDescFlatten');
+      case ConversionMode.SPLIT_PDF: return t('dropDescSplit');
+      default: return t('dropDescPdf');
     }
   };
 
   const getInputAccept = () => {
-     if (mode === ConversionMode.PNG_TO_PDF) return "image/*";
-     return "application/pdf";
+    if (mode === ConversionMode.PNG_TO_PDF) return "image/*";
+    return "application/pdf";
   };
-  
+
   const getDropzoneAccept = (): Accept => {
-     if (mode === ConversionMode.PNG_TO_PDF) {
-         return { 
-            'image/jpeg': ['.jpg', '.jpeg'], 
-            'image/png': ['.png'], 
-            'image/webp': ['.webp'] 
-         };
-     }
-     return { 'application/pdf': ['.pdf'] };
+    if (mode === ConversionMode.PNG_TO_PDF) {
+      return {
+        'image/jpeg': ['.jpg', '.jpeg'],
+        'image/png': ['.png'],
+        'image/webp': ['.webp']
+      };
+    }
+    return { 'application/pdf': ['.pdf'] };
   };
 
   // --- Queue View Dropzone ---
@@ -711,19 +711,19 @@ export default function App() {
   return (
     <div className="flex flex-col min-h-screen bg-background font-sans text-black selection:bg-primary selection:text-black">
       {/* Hidden input for Add More functionality */}
-      <input 
-        type="file" 
-        multiple 
+      <input
+        type="file"
+        multiple
         ref={addFilesInputRef}
         onChange={(e) => {
-            if (e.target.files && e.target.files.length > 0) {
-                handleFiles(Array.from(e.target.files));
-                // Reset input value to allow adding same files again if needed
-                e.target.value = '';
-            }
+          if (e.target.files && e.target.files.length > 0) {
+            handleFiles(Array.from(e.target.files));
+            // Reset input value to allow adding same files again if needed
+            e.target.value = '';
+          }
         }}
         accept={getInputAccept()}
-        className="hidden" 
+        className="hidden"
       />
 
       {pendingPdf && (
@@ -754,17 +754,17 @@ export default function App() {
             </div>
             <span className="text-2xl font-black tracking-tighter text-black uppercase">ParsePDF</span>
           </div>
-          
+
           <div className="flex items-center gap-4">
             <Tooltip content={t('ttClientSide')} position="bottom">
               <div className="hidden md:flex items-center gap-2 px-4 py-1.5 bg-[#aaddaa] text-black rounded-lg border-2 border-black shadow-neo-sm font-bold cursor-help">
-                 <span className="w-2 h-2 rounded-full bg-black"></span>
-                 <span className="text-xs uppercase">{t('clientSide')}</span>
+                <span className="w-2 h-2 rounded-full bg-black"></span>
+                <span className="text-xs uppercase">{t('clientSide')}</span>
               </div>
             </Tooltip>
-            
+
             <Tooltip content={t('ttLang')} position="bottom">
-              <button 
+              <button
                 onClick={() => setLang(lang === 'ko' ? 'en' : 'ko')}
                 className="flex items-center gap-2 text-sm font-bold text-black hover:bg-gray-100 transition-colors bg-white px-4 py-2 rounded-lg border-2 border-black shadow-neo-sm active:translate-x-[2px] active:translate-y-[2px] active:shadow-none"
               >
@@ -792,16 +792,16 @@ export default function App() {
             {t('heroTag')}
           </div>
           <h1 className="text-5xl md:text-7xl font-black tracking-tighter text-black mb-8 leading-none relative z-10">
-            {t('heroTitle')}<br/>
+            {t('heroTitle')}<br />
             <span className="text-primary">{t('heroTitleHighlight')}</span>
           </h1>
           <p className="text-xl font-medium text-gray-700 max-w-2xl mx-auto leading-relaxed mb-12 border-l-4 border-black pl-6 text-left md:text-center md:border-none md:pl-0 relative z-10">
             {t('heroDesc')}
           </p>
-          
+
           <div className="flex flex-wrap justify-center gap-4 relative z-10">
             <Tooltip content={t('ttPdfToPng')}>
-              <Button 
+              <Button
                 onClick={() => setMode(ConversionMode.PDF_TO_PNG)}
                 variant={mode === ConversionMode.PDF_TO_PNG ? 'primary' : 'secondary'}
                 size="lg"
@@ -812,7 +812,7 @@ export default function App() {
             </Tooltip>
 
             <Tooltip content={t('ttPngToPdf')}>
-              <Button 
+              <Button
                 onClick={() => setMode(ConversionMode.PNG_TO_PDF)}
                 variant={mode === ConversionMode.PNG_TO_PDF ? 'primary' : 'secondary'}
                 size="lg"
@@ -823,7 +823,7 @@ export default function App() {
             </Tooltip>
 
             <Tooltip content={t('ttSplitPdf')}>
-              <Button 
+              <Button
                 onClick={() => setMode(ConversionMode.SPLIT_PDF)}
                 variant={mode === ConversionMode.SPLIT_PDF ? 'primary' : 'secondary'}
                 size="lg"
@@ -834,7 +834,7 @@ export default function App() {
             </Tooltip>
 
             <Tooltip content={t('ttMergePdf')}>
-              <Button 
+              <Button
                 onClick={() => setMode(ConversionMode.MERGE_PDF)}
                 variant={mode === ConversionMode.MERGE_PDF ? 'primary' : 'secondary'}
                 size="lg"
@@ -845,7 +845,7 @@ export default function App() {
             </Tooltip>
 
             <Tooltip content={t('ttFlattenPdf')}>
-              <Button 
+              <Button
                 onClick={() => setMode(ConversionMode.FLATTEN_PDF)}
                 variant={mode === ConversionMode.FLATTEN_PDF ? 'primary' : 'secondary'}
                 size="lg"
@@ -862,15 +862,15 @@ export default function App() {
           <div className={`space-y-8 ${isPreviewMode ? 'w-full' : 'lg:col-span-2'}`}>
             <Card title={getCardTitle()} icon={getCardIcon()} className="min-h-[600px]">
               {editingFile ? (
-                 <div className="h-full min-h-[500px] -m-6 border-b-0 rounded-b-xl overflow-hidden">
-                    <ImageEditor 
-                      file={editingFile} 
-                      onSave={handleSaveEdit} 
-                      onClose={() => setEditingFile(null)} 
-                      translations={translations[lang]}
-                      initialMode={editorInitialMode}
-                    />
-                 </div>
+                <div className="h-full min-h-[500px] -m-6 border-b-0 rounded-b-xl overflow-hidden">
+                  <ImageEditor
+                    file={editingFile}
+                    onSave={handleSaveEdit}
+                    onClose={() => setEditingFile(null)}
+                    translations={translations[lang]}
+                    initialMode={editorInitialMode}
+                  />
+                </div>
               ) : previewFile ? (
                 <div className="relative h-full flex flex-col">
                   <div className="absolute -top-14 right-0 z-10">
@@ -899,24 +899,24 @@ export default function App() {
                         <>
                           <Tooltip content={t('ttCrop')}>
                             <Button onClick={() => openEditor('crop')} size="sm" variant="secondary" title="" className="px-2">
-                               <Crop size={16} /> <span className="hidden sm:inline">{t('crop')}</span>
+                              <Crop size={16} /> <span className="hidden sm:inline">{t('crop')}</span>
                             </Button>
                           </Tooltip>
 
                           <Tooltip content={t('ttAdjust')}>
                             <Button onClick={() => openEditor('adjust')} size="sm" variant="secondary" title="" className="px-2">
-                               <SlidersHorizontal size={16} /> <span className="hidden sm:inline">{t('adjust')}</span>
+                              <SlidersHorizontal size={16} /> <span className="hidden sm:inline">{t('adjust')}</span>
                             </Button>
                           </Tooltip>
 
                           <Tooltip content={t('ttRotate')}>
                             <Button onClick={handleQuickRotate} size="sm" variant="secondary" title="" className="px-2">
-                               <RotateCw size={16} /> <span className="hidden sm:inline">{t('rotate')}</span>
+                              <RotateCw size={16} /> <span className="hidden sm:inline">{t('rotate')}</span>
                             </Button>
                           </Tooltip>
 
                           <div className="w-[1px] bg-gray-300 mx-1 h-8"></div>
-                          
+
                           <Tooltip content={t('ttEdit')}>
                             <Button onClick={() => openEditor('draw')} size="sm" variant="secondary">
                               <Pencil size={16} /> {t('edit')}
@@ -935,53 +935,52 @@ export default function App() {
               ) : queue.length > 0 ? (
                 // QUEUE VIEW
                 <div className="flex flex-col h-full min-h-[500px] p-2">
-                    <div className="flex items-center gap-2 mb-4 px-2">
-                        <Cog className={`text-primary ${status === ProcessStatus.PROCESSING ? 'animate-spin' : ''}`} size={24} />
-                        <h3 className="text-xl font-black uppercase">{t('processing')}</h3>
-                    </div>
+                  <div className="flex items-center gap-2 mb-4 px-2">
+                    <Cog className={`text-primary ${status === ProcessStatus.PROCESSING ? 'animate-spin' : ''}`} size={24} />
+                    <h3 className="text-xl font-black uppercase">{t('processing')}</h3>
+                  </div>
 
-                    <div className="flex-grow overflow-y-auto space-y-3 pr-2 custom-scrollbar">
-                        {queue.map((item, idx) => (
-                            <div key={item.id} className="bg-white border-2 border-black rounded-lg p-4 shadow-sm flex items-center gap-4">
-                                <div className="shrink-0 w-10 h-10 flex items-center justify-center bg-gray-100 rounded-md border-2 border-black">
-                                    {item.status === ProcessStatus.COMPLETED ? (
-                                        <CheckCircle className="text-green-600" size={24} />
-                                    ) : item.status === ProcessStatus.PROCESSING ? (
-                                        <Cog className="text-primary animate-spin" size={24} />
-                                    ) : item.status === ProcessStatus.ERROR ? (
-                                        <AlertCircle className="text-red-500" size={24} />
-                                    ) : (
-                                        <Clock className="text-gray-400" size={24} />
-                                    )}
-                                </div>
-                                <div className="flex-grow min-w-0">
-                                    <div className="flex justify-between mb-1">
-                                        <span className="font-bold text-sm truncate">{item.file.name}</span>
-                                        <span className={`text-xs font-bold ${item.status === ProcessStatus.COMPLETED ? 'text-green-600' : 'text-gray-500'}`}>
-                                            {item.status === ProcessStatus.QUEUED ? 'WAITING' : 
-                                             item.status === ProcessStatus.COMPLETED ? 'DONE' : 
-                                             item.status === ProcessStatus.ERROR ? 'ERROR' : 
-                                             `${Math.round(item.progress)}%`}
-                                        </span>
-                                    </div>
-                                    <div className="h-2 bg-gray-100 rounded-full border border-black/10 overflow-hidden">
-                                        <div 
-                                            className={`h-full transition-all duration-300 ${
-                                                item.status === ProcessStatus.ERROR ? 'bg-red-400' :
-                                                item.status === ProcessStatus.COMPLETED ? 'bg-green-500' : 'bg-primary'
-                                            }`}
-                                            style={{ width: `${item.progress}%` }}
-                                        ></div>
-                                    </div>
-                                </div>
-                            </div>
-                        ))}
-                    </div>
+                  <div className="flex-grow overflow-y-auto space-y-3 pr-2 custom-scrollbar">
+                    {queue.map((item) => (
+                      <div key={item.id} className="bg-white border-2 border-black rounded-lg p-4 shadow-sm flex items-center gap-4">
+                        <div className="shrink-0 w-10 h-10 flex items-center justify-center bg-gray-100 rounded-md border-2 border-black">
+                          {item.status === ProcessStatus.COMPLETED ? (
+                            <CheckCircle className="text-green-600" size={24} />
+                          ) : item.status === ProcessStatus.PROCESSING ? (
+                            <Cog className="text-primary animate-spin" size={24} />
+                          ) : item.status === ProcessStatus.ERROR ? (
+                            <AlertCircle className="text-red-500" size={24} />
+                          ) : (
+                            <Clock className="text-gray-400" size={24} />
+                          )}
+                        </div>
+                        <div className="flex-grow min-w-0">
+                          <div className="flex justify-between mb-1">
+                            <span className="font-bold text-sm truncate">{item.file.name}</span>
+                            <span className={`text-xs font-bold ${item.status === ProcessStatus.COMPLETED ? 'text-green-600' : 'text-gray-500'}`}>
+                              {item.status === ProcessStatus.QUEUED ? 'WAITING' :
+                                item.status === ProcessStatus.COMPLETED ? 'DONE' :
+                                  item.status === ProcessStatus.ERROR ? 'ERROR' :
+                                    `${Math.round(item.progress)}%`}
+                            </span>
+                          </div>
+                          <div className="h-2 bg-gray-100 rounded-full border border-black/10 overflow-hidden">
+                            <div
+                              className={`h-full transition-all duration-300 ${item.status === ProcessStatus.ERROR ? 'bg-red-400' :
+                                item.status === ProcessStatus.COMPLETED ? 'bg-green-500' : 'bg-primary'
+                                }`}
+                              style={{ width: `${item.progress}%` }}
+                            ></div>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
                 </div>
               ) : (
-                <DropZone 
-                  mode={mode} 
-                  onFilesDropped={handleFiles} 
+                <DropZone
+                  mode={mode}
+                  onFilesDropped={handleFiles}
                   translations={{
                     dropTitle: t('dropTitle'),
                     dropDesc: getDropDesc(),
@@ -994,12 +993,12 @@ export default function App() {
           </div>
 
           <div className={`${isPreviewMode ? 'w-full' : 'lg:col-span-1'}`}>
-            <Card 
-              title={t('results')} 
-              icon={Download} 
+            <Card
+              title={t('results')}
+              icon={Download}
               className={isResultsCollapsed ? 'h-auto' : 'h-full'}
               action={
-                <button 
+                <button
                   onClick={() => setIsResultsCollapsed(prev => !prev)}
                   className="p-1 hover:bg-gray-100 rounded-lg transition-colors"
                 >
@@ -1008,144 +1007,144 @@ export default function App() {
               }
             >
               {isResultsCollapsed ? (
-                 <div 
-                    className="flex items-center justify-between p-4 bg-gray-50 rounded-lg border-2 border-black/5 cursor-pointer hover:bg-gray-100 transition-colors"
-                    onClick={() => setIsResultsCollapsed(false)}
-                 >
-                    <div className="flex items-center gap-2">
-                       <CheckCircle size={16} className="text-green-600"/>
-                       <span className="font-bold text-sm text-gray-700">{generatedFiles.length} {t('ready')}</span>
-                    </div>
-                    <span className="text-xs font-bold text-primary uppercase">{t('expand')}</span>
-                 </div>
+                <div
+                  className="flex items-center justify-between p-4 bg-gray-50 rounded-lg border-2 border-black/5 cursor-pointer hover:bg-gray-100 transition-colors"
+                  onClick={() => setIsResultsCollapsed(false)}
+                >
+                  <div className="flex items-center gap-2">
+                    <CheckCircle size={16} className="text-green-600" />
+                    <span className="font-bold text-sm text-gray-700">{generatedFiles.length} {t('ready')}</span>
+                  </div>
+                  <span className="text-xs font-bold text-primary uppercase">{t('expand')}</span>
+                </div>
               ) : (
-                  generatedFiles.length === 0 ? (
-                    <div className="flex flex-col items-center justify-center h-[400px] text-gray-400 border-2 border-dashed border-gray-300 rounded-xl bg-gray-50">
-                      <div className="p-4 bg-white rounded-full mb-4 border-2 border-gray-300">
-                        <Download size={32} className="opacity-40" />
-                      </div>
-                      <p className="text-sm font-bold text-center px-6">{lang === 'ko' ? '여기에 결과 파일이 나타납니다.' : 'Your files will appear here.'}</p>
+                generatedFiles.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center h-[400px] text-gray-400 border-2 border-dashed border-gray-300 rounded-xl bg-gray-50">
+                    <div className="p-4 bg-white rounded-full mb-4 border-2 border-gray-300">
+                      <Download size={32} className="opacity-40" />
                     </div>
-                  ) : (
-                    <div {...getQueueRootProps()} className="flex flex-col h-full relative">
-                      {/* Drop Overlay for adding files to queue */}
-                      {isQueueDragActive && (
-                          <div className="absolute inset-0 z-50 bg-primary/90 rounded-xl flex flex-col items-center justify-center animate-in fade-in duration-200 border-2 border-black m-[-1rem]">
-                              <UploadCloud size={48} className="text-white mb-2 animate-bounce" />
-                              <p className="text-xl font-black text-white uppercase tracking-wider">{t('dropToAdd')}</p>
+                    <p className="text-sm font-bold text-center px-6">{lang === 'ko' ? '여기에 결과 파일이 나타납니다.' : 'Your files will appear here.'}</p>
+                  </div>
+                ) : (
+                  <div {...getQueueRootProps()} className="flex flex-col h-full relative">
+                    {/* Drop Overlay for adding files to queue */}
+                    {isQueueDragActive && (
+                      <div className="absolute inset-0 z-50 bg-primary/90 rounded-xl flex flex-col items-center justify-center animate-in fade-in duration-200 border-2 border-black m-[-1rem]">
+                        <UploadCloud size={48} className="text-white mb-2 animate-bounce" />
+                        <p className="text-xl font-black text-white uppercase tracking-wider">{t('dropToAdd')}</p>
+                      </div>
+                    )}
+                    <input {...getQueueInputProps()} />
+
+                    <div className="flex items-center justify-between mb-6 bg-[#d1fae5] p-4 rounded-xl border-2 border-black shadow-neo-sm">
+                      <span className="text-sm font-black text-black uppercase">{generatedFiles.length} {t('ready')}</span>
+                      <div className="flex gap-2">
+                        <Tooltip content={t('ttAddFiles')} position="left">
+                          <button onClick={handleAddFilesClick} className="p-1 hover:bg-black/10 rounded-full transition-colors">
+                            <Plus size={20} className="text-black" />
+                          </button>
+                        </Tooltip>
+                        <CheckCircle size={20} className="text-black" />
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 gap-3 mb-6">
+                      {/* Compression Slider */}
+                      {(mode === ConversionMode.FLATTEN_PDF || mode === ConversionMode.PNG_TO_PDF) && (
+                        <div className="mb-2 p-4 bg-gray-50 rounded-lg border-2 border-black/5 animate-in fade-in slide-in-from-top-2 duration-300">
+                          <div className="flex justify-between mb-2 items-center">
+                            <label className="text-xs font-bold uppercase text-gray-500">{t('quality')}</label>
+                            <span className="text-xs font-black text-black bg-white px-2 py-0.5 rounded border border-black/10 shadow-sm">{Math.round(quality * 100)}%</span>
                           </div>
+                          <input
+                            type="range"
+                            min="0.1"
+                            max="1.0"
+                            step="0.1"
+                            value={quality}
+                            onChange={(e) => setQuality(parseFloat(e.target.value))}
+                            className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-primary hover:accent-primary-hover focus:outline-none focus:ring-2 focus:ring-primary/20"
+                          />
+                          <p className="text-[10px] text-gray-400 mt-2 font-medium">{t('qualityDesc')}</p>
+                        </div>
                       )}
-                      <input {...getQueueInputProps()} />
 
-                      <div className="flex items-center justify-between mb-6 bg-[#d1fae5] p-4 rounded-xl border-2 border-black shadow-neo-sm">
-                        <span className="text-sm font-black text-black uppercase">{generatedFiles.length} {t('ready')}</span>
-                        <div className="flex gap-2">
-                            <Tooltip content={t('ttAddFiles')} position="left">
-                              <button onClick={handleAddFilesClick} className="p-1 hover:bg-black/10 rounded-full transition-colors">
-                                  <Plus size={20} className="text-black" />
-                              </button>
-                            </Tooltip>
-                            <CheckCircle size={20} className="text-black" />
-                        </div>
-                      </div>
-                      
-                      <div className="grid grid-cols-1 gap-3 mb-6">
-                        {/* Compression Slider */}
-                        {(mode === ConversionMode.FLATTEN_PDF || mode === ConversionMode.PNG_TO_PDF) && (
-                          <div className="mb-2 p-4 bg-gray-50 rounded-lg border-2 border-black/5 animate-in fade-in slide-in-from-top-2 duration-300">
-                            <div className="flex justify-between mb-2 items-center">
-                              <label className="text-xs font-bold uppercase text-gray-500">{t('quality')}</label>
-                              <span className="text-xs font-black text-black bg-white px-2 py-0.5 rounded border border-black/10 shadow-sm">{Math.round(quality * 100)}%</span>
-                            </div>
-                            <input 
-                              type="range" 
-                              min="0.1" 
-                              max="1.0" 
-                              step="0.1" 
-                              value={quality} 
-                              onChange={(e) => setQuality(parseFloat(e.target.value))}
-                              className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-primary hover:accent-primary-hover focus:outline-none focus:ring-2 focus:ring-primary/20"
-                            />
-                            <p className="text-[10px] text-gray-400 mt-2 font-medium">{t('qualityDesc')}</p>
-                          </div>
-                        )}
-
-                        {/* Merge / Action Buttons */}
-                        {(mode === ConversionMode.MERGE_PDF || mode === ConversionMode.PNG_TO_PDF || mode === ConversionMode.FLATTEN_PDF) ? (
-                          <Tooltip content={t('ttMergeAction')} position="bottom">
-                            <Button onClick={handleMerge} className="w-full justify-between group" variant="primary" size="sm">
-                              <span className="flex items-center gap-2">
-                                  {mode === ConversionMode.FLATTEN_PDF ? <Layers size={16} /> : <FileStack size={16} />}
-                                  {mode === ConversionMode.FLATTEN_PDF ? t('flattenMerge') : t('mergeBack')}
-                              </span>
-                              <ArrowRight size={14} className="group-hover:translate-x-1 transition-transform" />
-                            </Button>
-                          </Tooltip>
-                        ) : (
-                          // For PDF_TO_PNG and SPLIT_PDF, we just offer ZIP download as we process immediately
-                          <Tooltip content={t('ttDownloadZip')} position="bottom">
-                            <Button onClick={handleDownloadZip} className="w-full justify-between group bg-black text-white hover:bg-gray-800" size="sm">
-                              <span className="flex items-center gap-2"><FileArchive size={16} /> {t('downloadZip')}</span>
-                              <ArrowRight size={14} className="group-hover:translate-x-1 transition-transform" />
-                            </Button>
-                          </Tooltip>
-                        )}
-                      </div>
-
-                      {/* Sortable DND Context */}
-                      <DndContext 
-                        sensors={sensors}
-                        collisionDetection={closestCenter}
-                        onDragStart={handleDragStart}
-                        onDragEnd={handleDragEnd}
-                      >
-                        <div className="overflow-y-auto max-h-[600px] pr-2 custom-scrollbar flex-grow">
-                          <SortableContext 
-                            items={generatedFiles.map(f => f.id)}
-                            strategy={rectSortingStrategy}
-                          >
-                            <div className={`grid gap-3 pb-4 ${isPreviewMode ? 'grid-cols-2 sm:grid-cols-4 lg:grid-cols-6' : 'grid-cols-2'}`}>
-                              {generatedFiles.map((file) => (
-                                <SortableFileCard 
-                                  key={file.id} 
-                                  id={file.id}
-                                  file={file}
-                                  isActive={previewFile?.id === file.id}
-                                  onPreview={() => { setPreviewFile(file); setEditingFile(null); }}
-                                  onDelete={() => handleDelete(file.id)}
-                                  onDownload={() => handleDownload(file.url, file.name)}
-                                  translations={{
-                                    delete: t('ttDelete'),
-                                    download: t('ttDownload')
-                                  }}
-                                />
-                              ))}
-                              
-                              {/* Inline Add Button inside grid */}
-                              <div 
-                                onClick={handleAddFilesClick}
-                                className="aspect-square border-2 border-dashed border-gray-300 rounded-lg flex flex-col items-center justify-center text-gray-400 hover:text-primary hover:border-primary hover:bg-blue-50 cursor-pointer transition-all"
-                              >
-                                <Plus size={24} />
-                                <span className="text-[10px] font-bold uppercase mt-1">{t('addMore')}</span>
-                              </div>
-
-                            </div>
-                          </SortableContext>
-                        </div>
-
-                        <DragOverlay>
-                            {activeId ? (
-                                <FileCardOverlay 
-                                  id={activeId}
-                                  file={generatedFiles.find(f => f.id === activeId)!} 
-                                />
-                            ) : null}
-                        </DragOverlay>
-                      </DndContext>
-
+                      {/* Merge / Action Buttons */}
+                      {(mode === ConversionMode.MERGE_PDF || mode === ConversionMode.PNG_TO_PDF || mode === ConversionMode.FLATTEN_PDF) ? (
+                        <Tooltip content={t('ttMergeAction')} position="bottom">
+                          <Button onClick={handleMerge} className="w-full justify-between group" variant="primary" size="sm">
+                            <span className="flex items-center gap-2">
+                              {mode === ConversionMode.FLATTEN_PDF ? <Layers size={16} /> : <FileStack size={16} />}
+                              {mode === ConversionMode.FLATTEN_PDF ? t('flattenMerge') : t('mergeBack')}
+                            </span>
+                            <ArrowRight size={14} className="group-hover:translate-x-1 transition-transform" />
+                          </Button>
+                        </Tooltip>
+                      ) : (
+                        // For PDF_TO_PNG and SPLIT_PDF, we just offer ZIP download as we process immediately
+                        <Tooltip content={t('ttDownloadZip')} position="bottom">
+                          <Button onClick={handleDownloadZip} className="w-full justify-between group bg-black text-white hover:bg-gray-800" size="sm">
+                            <span className="flex items-center gap-2"><FileArchive size={16} /> {t('downloadZip')}</span>
+                            <ArrowRight size={14} className="group-hover:translate-x-1 transition-transform" />
+                          </Button>
+                        </Tooltip>
+                      )}
                     </div>
-                  )
+
+                    {/* Sortable DND Context */}
+                    <DndContext
+                      sensors={sensors}
+                      collisionDetection={closestCenter}
+                      onDragStart={handleDragStart}
+                      onDragEnd={handleDragEnd}
+                    >
+                      <div className="overflow-y-auto max-h-[600px] pr-2 custom-scrollbar flex-grow">
+                        <SortableContext
+                          items={generatedFiles.map(f => f.id)}
+                          strategy={rectSortingStrategy}
+                        >
+                          <div className={`grid gap-3 pb-4 ${isPreviewMode ? 'grid-cols-2 sm:grid-cols-4 lg:grid-cols-6' : 'grid-cols-2'}`}>
+                            {generatedFiles.map((file) => (
+                              <SortableFileCard
+                                key={file.id}
+                                id={file.id}
+                                file={file}
+                                isActive={previewFile?.id === file.id}
+                                onPreview={() => { setPreviewFile(file); setEditingFile(null); }}
+                                onDelete={() => handleDelete(file.id)}
+                                onDownload={() => handleDownload(file.url, file.name)}
+                                translations={{
+                                  delete: t('ttDelete'),
+                                  download: t('ttDownload')
+                                }}
+                              />
+                            ))}
+
+                            {/* Inline Add Button inside grid */}
+                            <div
+                              onClick={handleAddFilesClick}
+                              className="aspect-square border-2 border-dashed border-gray-300 rounded-lg flex flex-col items-center justify-center text-gray-400 hover:text-primary hover:border-primary hover:bg-blue-50 cursor-pointer transition-all"
+                            >
+                              <Plus size={24} />
+                              <span className="text-[10px] font-bold uppercase mt-1">{t('addMore')}</span>
+                            </div>
+
+                          </div>
+                        </SortableContext>
+                      </div>
+
+                      <DragOverlay>
+                        {activeId ? (
+                          <FileCardOverlay
+                            id={activeId}
+                            file={generatedFiles.find(f => f.id === activeId)!}
+                          />
+                        ) : null}
+                      </DragOverlay>
+                    </DndContext>
+
+                  </div>
+                )
               )}
             </Card>
           </div>
