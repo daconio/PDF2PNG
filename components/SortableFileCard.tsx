@@ -57,47 +57,54 @@ export const SortableFileCard: React.FC<SortableFileCardProps> = ({
 
   const showThumbnail = isImageFile(file);
 
+  const handleAction = (e: React.MouseEvent | React.PointerEvent, action: () => void) => {
+    e.stopPropagation();
+    // Prevent dnd-kit from catching this event
+    e.preventDefault();
+    action();
+  };
+
   return (
     <div
       ref={setNodeRef}
       style={style}
-      className={`group relative border-2 border-black rounded-lg bg-white overflow-hidden transition-all hover:shadow-neo ${
+      {...attributes} 
+      {...listeners}
+      className={`group relative border-2 border-black rounded-lg bg-white overflow-hidden transition-all hover:shadow-neo cursor-grab active:cursor-grabbing ${
         isActive ? 'bg-blue-50 ring-2 ring-primary ring-offset-2' : ''
       }`}
     >
-        {/* Drag Handle */}
-        <div 
-            {...attributes} 
-            {...listeners}
-            className="absolute top-2 left-2 z-20 p-1.5 bg-white/80 backdrop-blur border border-black rounded cursor-grab active:cursor-grabbing hover:bg-gray-100 opacity-0 group-hover:opacity-100 transition-opacity"
-        >
-            <GripVertical size={16} />
-        </div>
-
       <div 
         onClick={onPreview}
-        className="aspect-square bg-gray-100 flex items-center justify-center relative border-b-2 border-black cursor-pointer overflow-hidden"
+        className="aspect-square bg-gray-100 flex items-center justify-center relative border-b-2 border-black overflow-hidden"
       >
         {showThumbnail ? (
-          <img src={file.url} alt={file.name} className="w-full h-full object-cover" />
+          <img src={file.url} alt={file.name} className="w-full h-full object-cover pointer-events-none select-none" />
         ) : (
           <FileText size={32} className="text-gray-400" />
         )}
         <div className="absolute inset-0 bg-black/10 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center pointer-events-none">
           <Eye size={24} className="text-white drop-shadow-md" />
         </div>
+        
+        {/* Visual Grip Indicator (no listeners needed as parent has them) */}
+        <div className="absolute top-2 left-2 z-20 p-1 bg-white/80 backdrop-blur border border-black rounded text-black/50">
+            <GripVertical size={14} />
+        </div>
       </div>
       
-      <div className="p-2 space-y-2">
+      {/* Footer Area - disable dragging here to allow text selection and button clicking without drag interference */}
+      <div className="p-2 space-y-2 cursor-default" onPointerDown={(e) => e.stopPropagation()}>
         <div className="truncate">
-          <p className="text-xs font-bold text-black truncate" title={file.name}>{file.name}</p>
-          <p className="text-[10px] text-gray-600 font-mono">{(file.blob.size / 1024).toFixed(0)} KB</p>
+          <p className="text-xs font-bold text-black truncate select-none" title={file.name}>{file.name}</p>
+          <p className="text-[10px] text-gray-600 font-mono select-none">{(file.blob.size / 1024).toFixed(0)} KB</p>
         </div>
         <div className="flex gap-1">
           <Tooltip content={translations?.delete || "Delete"} className="flex-1">
             <button
               className="w-full flex items-center justify-center bg-[#fca5a5] border border-black rounded py-1 hover:bg-[#f87171] transition-colors"
-              onClick={(e) => { e.stopPropagation(); onDelete(); }}
+              onClick={(e) => handleAction(e, onDelete)}
+              onPointerDown={(e) => e.stopPropagation()}
             >
               <Trash2 size={12} className="text-black" />
             </button>
@@ -106,7 +113,8 @@ export const SortableFileCard: React.FC<SortableFileCardProps> = ({
           <Tooltip content={translations?.download || "Download"} className="flex-1">
             <button
               className="w-full flex items-center justify-center bg-white border border-black rounded py-1 hover:bg-gray-50 transition-colors"
-              onClick={(e) => { e.stopPropagation(); onDownload(); }}
+              onClick={(e) => handleAction(e, onDownload)}
+              onPointerDown={(e) => e.stopPropagation()}
             >
               <Download size={12} className="text-black" />
             </button>

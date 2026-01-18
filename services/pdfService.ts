@@ -168,11 +168,19 @@ export const convertImagesToPdf = async (
 
 /**
  * Merges multiple PDF files into a single PDF.
+ * If quality < 1.0, it treats the request as a compression task and delegates to flattenPdfs
+ * to rasterize and compress the content.
  */
 export const mergePdfs = async (
   files: Blob[],
-  onProgress: (current: number, total: number) => void
+  onProgress: (current: number, total: number) => void,
+  quality: number = 1.0
 ): Promise<Blob> => {
+  // If quality is reduced, use flattening strategy to compress
+  if (quality < 1.0) {
+      return flattenPdfs(files, onProgress, quality);
+  }
+
   const mergedPdf = await PDFDocument.create();
   
   for (let i = 0; i < files.length; i++) {

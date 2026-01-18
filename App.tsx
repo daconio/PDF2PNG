@@ -249,8 +249,13 @@ export default function App() {
     setPreviewFile(null);
     setEditingFile(null);
     setPendingPdf(null);
-    setQuality(0.9); // Reset quality on mode change
-    // We can keep outputFormat state or reset it. Let's keep it persistent.
+    
+    // Reset quality logic: Merge defaults to lossless (1.0), others to 0.9
+    if (mode === ConversionMode.MERGE_PDF) {
+        setQuality(1.0);
+    } else {
+        setQuality(0.9);
+    }
   }, [mode]);
 
   // --- QUEUE PROCESSOR ---
@@ -538,7 +543,7 @@ export default function App() {
       if (mode === ConversionMode.MERGE_PDF) {
         pdfBlob = await mergePdfs(blobs, (current, total) => {
            setQueue([{...mergeItem, progress: (current / total) * 100}]);
-        });
+        }, quality);
       } else if (mode === ConversionMode.FLATTEN_PDF) {
         pdfBlob = await flattenPdfs(blobs, (current, total) => {
            setQueue([{...mergeItem, progress: (current / total) * 100}]);
@@ -558,6 +563,8 @@ export default function App() {
         
         if (mode === ConversionMode.FLATTEN_PDF) {
             filename = `${base}_flattened.pdf`;
+        } else if (mode === ConversionMode.MERGE_PDF && quality < 1.0) {
+            filename = `${base}_merged_compressed.pdf`;
         } else {
             filename = `${base}_merged.pdf`;
         }
@@ -1096,7 +1103,7 @@ export default function App() {
                         )}
 
                         {/* Compression Slider */}
-                        {(mode === ConversionMode.FLATTEN_PDF || mode === ConversionMode.PNG_TO_PDF || (mode === ConversionMode.PDF_TO_PNG && outputFormat === 'jpg')) && (
+                        {(mode === ConversionMode.MERGE_PDF || mode === ConversionMode.FLATTEN_PDF || mode === ConversionMode.PNG_TO_PDF || (mode === ConversionMode.PDF_TO_PNG && outputFormat === 'jpg')) && (
                           <div className="mb-2 p-4 bg-gray-50 rounded-lg border-2 border-black/5 animate-in fade-in slide-in-from-top-2 duration-300">
                             <div className="flex justify-between mb-2 items-center">
                               <label className="text-xs font-bold uppercase text-gray-500">{t('quality')}</label>
