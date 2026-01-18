@@ -81,7 +81,7 @@ const translations = {
     format: "Output Format",
     // Modal
     modalTitle: "Select Pages",
-    modalDesc: "Enter page numbers or ranges to extract (e.g. 1-3, 5, 8).",
+    modalDesc: "Enter page numbers or ranges to extract (e.g. 1-3, 5, 8). Each selected page will be saved as a separate file.",
     modalPlaceholder: "e.g. 1-5, 8",
     modalConvert: "CONVERT",
     modalCancel: "CANCEL",
@@ -154,7 +154,7 @@ const translations = {
     format: "출력 형식",
     // Modal
     modalTitle: "페이지 선택",
-    modalDesc: "변환할 페이지 번호나 범위를 입력하세요 (예: 1-3, 5, 8).",
+    modalDesc: "변환할 페이지 번호나 범위를 입력하세요 (예: 1-3, 5, 8). 선택한 페이지는 각각 별도의 파일로 저장됩니다.",
     modalPlaceholder: "예: 1-5, 8",
     modalConvert: "변환 시작",
     modalCancel: "취소",
@@ -366,7 +366,7 @@ export default function App() {
     // For PDF splitting or PDF to PNG
     if (mode === ConversionMode.PDF_TO_PNG || mode === ConversionMode.SPLIT_PDF) {
         // If single file, show modal to allow specific page selection
-        if (files.length === 1 && generatedFiles.length === 0 && queue.length === 0) {
+        if (files.length === 1) {
             try {
                 const pdfFile = files[0];
                 const count = await getPdfPageCount(pdfFile);
@@ -472,10 +472,6 @@ export default function App() {
     setStatus(ProcessStatus.PROCESSING);
     
     // Create a special single-item queue for this manual selection
-    // Note: We need to handle the specific page logic, which isn't in the generic queue processor
-    // So for this specific flow, we might just run it directly or hack the queue.
-    // Let's run it directly like before, but visualize it in the "Queue" UI by adding a dummy queue item
-    
     const fileItem: FileItem = {
         id: Math.random().toString(36).substr(2, 9),
         file: file,
@@ -509,7 +505,7 @@ export default function App() {
           blob: blob
         }));
         
-        setGeneratedFiles(newGeneratedFiles);
+        setGeneratedFiles(prev => [...prev, ...newGeneratedFiles]);
         if (newGeneratedFiles.length > 0) setPreviewFile(newGeneratedFiles[0]);
         
         setQueue([{...fileItem, status: ProcessStatus.COMPLETED, progress: 100}]);
