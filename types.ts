@@ -10,6 +10,7 @@ export enum ConversionMode {
 
 export enum ProcessStatus {
   IDLE = 'IDLE',
+  QUEUED = 'QUEUED',
   PROCESSING = 'PROCESSING',
   COMPLETED = 'COMPLETED',
   ERROR = 'ERROR',

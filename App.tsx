@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { Layout, Images, FileText, CheckCircle, ArrowRight, Download, Github, FileArchive, X, Eye, Pencil, FileStack, Globe, Cog, Crop, RotateCw, SlidersHorizontal, Files, Layers, Plus, UploadCloud, Scissors, ChevronDown, ChevronUp } from 'lucide-react';
+import { Layout, Images, FileText, CheckCircle, ArrowRight, Download, Github, FileArchive, X, Eye, Pencil, FileStack, Globe, Cog, Crop, RotateCw, SlidersHorizontal, Files, Layers, Plus, UploadCloud, Scissors, ChevronDown, ChevronUp, Clock, AlertCircle } from 'lucide-react';
 import { useDropzone, Accept } from 'react-dropzone';
 import { 
   DndContext, 
@@ -59,11 +59,11 @@ const translations = {
     footerTitle: "ParsePDF",
     footerDesc: "Handcrafted with <3 and lots of caffeine.",
     dropTitle: "DROP FILES HERE",
-    dropDescPdf: "Upload a PDF to extract pages.",
+    dropDescPdf: "Upload PDF(s). Multiple files will be processed sequentially.",
     dropDescImg: "Upload images to merge. Drag to reorder.",
     dropDescMerge: "Upload multiple PDFs to merge. Drag to reorder.",
     dropDescFlatten: "Upload PDFs to flatten into images then merge.",
-    dropDescSplit: "Upload a PDF to split pages.",
+    dropDescSplit: "Upload PDF(s) to split pages.",
     browse: "BROWSE FILES",
     delete: "DEL",
     edit: "EDIT",
@@ -131,7 +131,7 @@ const translations = {
     footerTitle: "ParsePDF",
     footerDesc: "개인정보 보호를 위해 정성껏 만들었습니다.",
     dropTitle: "파일을 여기에 놓으세요",
-    dropDescPdf: "PDF를 업로드하여 이미지를 추출하세요.",
+    dropDescPdf: "PDF를 업로드하세요. 여러 파일을 순차적으로 처리합니다.",
     dropDescImg: "이미지를 업로드하세요. 드래그하여 순서를 변경할 수 있습니다.",
     dropDescMerge: "합칠 PDF 파일들을 업로드하세요. 순서를 변경할 수 있습니다.",
     dropDescFlatten: "이미지로 변환하여 합칠 PDF들을 업로드하세요.",
@@ -190,7 +190,10 @@ export default function App() {
   const [lang, setLang] = useState<Language>('ko');
   const [mode, setMode] = useState<ConversionMode>(ConversionMode.PDF_TO_PNG);
   const [status, setStatus] = useState<ProcessStatus>(ProcessStatus.IDLE);
-  const [currentFile, setCurrentFile] = useState<FileItem | null>(null);
+  
+  // Replaced single currentFile with a queue
+  const [queue, setQueue] = useState<FileItem[]>([]);
+  
   const [generatedFiles, setGeneratedFiles] = useState<GeneratedFile[]>([]);
   const [previewFile, setPreviewFile] = useState<GeneratedFile | null>(null);
   const [editingFile, setEditingFile] = useState<GeneratedFile | null>(null);
@@ -237,7 +240,7 @@ export default function App() {
 
   useEffect(() => {
     setStatus(ProcessStatus.IDLE);
-    setCurrentFile(null);
+    setQueue([]);
     setGeneratedFiles([]);
     setPreviewFile(null);
     setEditingFile(null);
@@ -245,26 +248,134 @@ export default function App() {
     setQuality(0.9); // Reset quality on mode change
   }, [mode]);
 
+  // --- QUEUE PROCESSOR ---
+  // Watches the queue and processes files sequentially
+  useEffect(() => {
+    const processNextInQueue = async () => {
+        // Find the next item that is QUEUED
+        const nextItemIndex = queue.findIndex(item => item.status === ProcessStatus.QUEUED);
+        
+        // If nothing to process or something is currently processing, return
+        if (nextItemIndex === -1 || queue.some(item => item.status === ProcessStatus.PROCESSING)) {
+            return;
+        }
+
+        const item = queue[nextItemIndex];
+
+        // Update status to PROCESSING
+        setQueue(prev => {
+            const newQ = [...prev];
+            newQ[nextItemIndex] = { ...newQ[nextItemIndex], status: ProcessStatus.PROCESSING, progress: 0 };
+            return newQ;
+        });
+
+        // Set overall app status
+        setStatus(ProcessStatus.PROCESSING);
+
+        try {
+            let blobs: Blob[] = [];
+            
+            if (mode === ConversionMode.SPLIT_PDF) {
+                // For Split, if we auto-queued, we assume "All Pages" (1 to count)
+                // If it came from modal, we might have specific pages logic, but for batch queue let's default to all or single PDF logic
+                // NOTE: To simplify batch processing, we split ALL pages for batch files.
+                const count = await getPdfPageCount(item.file);
+                const pages = Array.from({ length: count }, (_, i) => i + 1);
+                
+                blobs = await splitPdf(item.file, pages, (current, total) => {
+                    setQueue(prev => {
+                        const newQ = [...prev];
+                        if (newQ[nextItemIndex]) {
+                            newQ[nextItemIndex].progress = (current / total) * 100;
+                        }
+                        return newQ;
+                    });
+                });
+            } else if (mode === ConversionMode.PDF_TO_PNG) {
+                // Default to all pages for queue items
+                blobs = await convertPdfToPng(item.file, (current, total) => {
+                     setQueue(prev => {
+                        const newQ = [...prev];
+                        if (newQ[nextItemIndex]) {
+                            newQ[nextItemIndex].progress = (current / total) * 100;
+                        }
+                        return newQ;
+                    });
+                });
+            }
+
+            const extension = mode === ConversionMode.SPLIT_PDF ? 'pdf' : 'png';
+            const newGeneratedFiles = blobs.map((blob, idx) => ({
+                id: `page-${item.id}-${idx}-${Math.random().toString(36).substr(2, 5)}`,
+                name: `${item.file.name.replace(/\.pdf$/i, '')}_${idx + 1}.${extension}`,
+                url: URL.createObjectURL(blob),
+                blob: blob
+            }));
+
+            // Add to results
+            setGeneratedFiles(prev => [...prev, ...newGeneratedFiles]);
+            
+            // Mark item as COMPLETED
+            setQueue(prev => {
+                const newQ = [...prev];
+                newQ[nextItemIndex] = { ...newQ[nextItemIndex], status: ProcessStatus.COMPLETED, progress: 100 };
+                return newQ;
+            });
+
+        } catch (error) {
+            console.error(error);
+            setQueue(prev => {
+                const newQ = [...prev];
+                newQ[nextItemIndex] = { ...newQ[nextItemIndex], status: ProcessStatus.ERROR };
+                return newQ;
+            });
+        }
+    };
+
+    // Trigger processing if we have queued items
+    if (queue.some(i => i.status === ProcessStatus.QUEUED)) {
+        processNextInQueue();
+    } else if (queue.length > 0 && queue.every(i => i.status === ProcessStatus.COMPLETED || i.status === ProcessStatus.ERROR)) {
+        // All done
+        setStatus(ProcessStatus.COMPLETED);
+    }
+  }, [queue, mode]);
+
+
   const handleFiles = useCallback(async (files: File[]) => {
     if (files.length === 0) return;
     
-    // For PDF splitting or PDF to PNG, we only allow one file at a time (replace workflow)
+    // For PDF splitting or PDF to PNG
     if (mode === ConversionMode.PDF_TO_PNG || mode === ConversionMode.SPLIT_PDF) {
-        setStatus(ProcessStatus.IDLE);
-        setGeneratedFiles([]);
-        setPreviewFile(null);
-        setPendingPdf(null);
-
-        try {
-            const pdfFile = files[0];
-            const count = await getPdfPageCount(pdfFile);
-            setPendingPdf({ file: pdfFile, count });
-        } catch (error) {
-            console.error(error);
-            setStatus(ProcessStatus.ERROR);
+        // If single file, show modal to allow specific page selection
+        if (files.length === 1 && generatedFiles.length === 0 && queue.length === 0) {
+            try {
+                const pdfFile = files[0];
+                const count = await getPdfPageCount(pdfFile);
+                setPendingPdf({ file: pdfFile, count });
+                return;
+            } catch (error) {
+                console.error(error);
+                setStatus(ProcessStatus.ERROR);
+                return;
+            }
         }
+
+        // Batch Mode / Add to Queue
+        // Add all files to queue with status QUEUED
+        const newQueueItems: FileItem[] = files.map(f => ({
+            id: Math.random().toString(36).substr(2, 9),
+            file: f,
+            status: ProcessStatus.QUEUED,
+            progress: 0
+        }));
+
+        setQueue(prev => [...prev, ...newQueueItems]);
+        setStatus(ProcessStatus.PROCESSING);
+        setPendingPdf(null); // Ensure modal is closed
+
     } else {
-        // Queue Mode (Append to list)
+        // Queue Mode (Append to list for Merge/Flatten)
         // PNG_TO_PDF, MERGE_PDF, FLATTEN_PDF
         
         // If we were in IDLE, move to COMPLETED (Ready state) to show list
@@ -286,7 +397,7 @@ export default function App() {
             setPreviewFile(newFiles[0]);
         }
     }
-  }, [mode, status, previewFile]);
+  }, [mode, status, previewFile, generatedFiles.length, queue.length]);
 
   // --- Paste Support ---
   useEffect(() => {
@@ -342,25 +453,32 @@ export default function App() {
 
     setStatus(ProcessStatus.PROCESSING);
     
+    // Create a special single-item queue for this manual selection
+    // Note: We need to handle the specific page logic, which isn't in the generic queue processor
+    // So for this specific flow, we might just run it directly or hack the queue.
+    // Let's run it directly like before, but visualize it in the "Queue" UI by adding a dummy queue item
+    
     const fileItem: FileItem = {
         id: Math.random().toString(36).substr(2, 9),
         file: file,
         status: ProcessStatus.PROCESSING,
         progress: 0,
     };
-    setCurrentFile(fileItem);
+    
+    // We use setQueue to visualize it
+    setQueue([fileItem]);
 
     try {
         let blobs: Blob[] = [];
         
         if (mode === ConversionMode.SPLIT_PDF) {
             blobs = await splitPdf(file, pages, (current, total) => {
-                setCurrentFile(prev => prev ? { ...prev, progress: (current / total) * 100 } : null);
+                setQueue([{...fileItem, progress: (current/total)*100}]);
             });
         } else {
             // PDF_TO_PNG
             blobs = await convertPdfToPng(file, (current, total) => {
-                setCurrentFile(prev => prev ? { ...prev, progress: (current / total) * 100 } : null);
+                setQueue([{...fileItem, progress: (current/total)*100}]);
             }, pages);
         }
 
@@ -374,9 +492,12 @@ export default function App() {
         
         setGeneratedFiles(newGeneratedFiles);
         if (newGeneratedFiles.length > 0) setPreviewFile(newGeneratedFiles[0]);
+        
+        setQueue([{...fileItem, status: ProcessStatus.COMPLETED, progress: 100}]);
         setStatus(ProcessStatus.COMPLETED);
     } catch (error) {
         console.error(error);
+        setQueue([{...fileItem, status: ProcessStatus.ERROR}]);
         setStatus(ProcessStatus.ERROR);
     }
   };
@@ -386,12 +507,14 @@ export default function App() {
     
     setStatus(ProcessStatus.PROCESSING);
 
-    setCurrentFile({
+    // Create a dummy queue item for the merge process
+    const mergeItem: FileItem = {
       id: 'merging',
-      file: new File([], 'merging.pdf'),
+      file: new File([], 'Merging Files...'),
       status: ProcessStatus.PROCESSING,
       progress: 0
-    });
+    };
+    setQueue([mergeItem]);
 
     try {
       const blobs = generatedFiles.map(f => f.blob);
@@ -399,16 +522,16 @@ export default function App() {
       
       if (mode === ConversionMode.MERGE_PDF) {
         pdfBlob = await mergePdfs(blobs, (current, total) => {
-           setCurrentFile(prev => prev ? { ...prev, progress: (current / total) * 100 } : null);
+           setQueue([{...mergeItem, progress: (current / total) * 100}]);
         });
       } else if (mode === ConversionMode.FLATTEN_PDF) {
         pdfBlob = await flattenPdfs(blobs, (current, total) => {
-           setCurrentFile(prev => prev ? { ...prev, progress: (current / total) * 100 } : null);
+           setQueue([{...mergeItem, progress: (current / total) * 100}]);
         }, quality);
       } else {
         // PNG_TO_PDF
         pdfBlob = await convertImagesToPdf(blobs, (current, total) => {
-           setCurrentFile(prev => prev ? { ...prev, progress: (current / total) * 100 } : null);
+           setQueue([{...mergeItem, progress: (current / total) * 100}]);
         }, quality);
       }
       
@@ -426,9 +549,12 @@ export default function App() {
       }
 
       handleDownload(url, filename);
+      
+      setQueue([{...mergeItem, status: ProcessStatus.COMPLETED, progress: 100}]);
       setStatus(ProcessStatus.COMPLETED);
     } catch (error) {
       console.error(error);
+      setQueue([{...mergeItem, status: ProcessStatus.ERROR}]);
       setStatus(ProcessStatus.ERROR);
     }
   };
@@ -806,33 +932,51 @@ export default function App() {
                     </div>
                   </div>
                 </div>
-              ) : status === ProcessStatus.PROCESSING ? (
-                <div className="flex flex-col items-center justify-center h-full min-h-[500px] text-center p-8">
-                  <div className="relative mb-8 p-4">
-                     <div className="absolute inset-0 bg-primary/20 rounded-full blur-xl animate-pulse"></div>
-                     <Cog size={80} className="text-black animate-spin duration-3000 relative z-10" /> 
-                  </div>
-                  
-                  <h3 className="text-2xl font-black text-black mb-2 uppercase tracking-tight">{t('processing')}</h3>
-                  <p className="text-gray-600 font-medium mb-10 max-w-xs mx-auto leading-relaxed">{t('processingDesc')}</p>
-                  
-                  {currentFile && (
-                    <div className="w-full max-w-sm space-y-2">
-                      <div className="flex justify-between items-end px-1">
-                        <span className="text-xs font-bold uppercase tracking-wider">Progress</span>
-                        <span className="text-xl font-black font-mono">{Math.round(currentFile.progress)}%</span>
-                      </div>
-                      <div className="h-8 bg-white border-2 border-black rounded-lg overflow-hidden p-1 shadow-neo-sm">
-                        <div 
-                          className="h-full bg-primary rounded-md border-2 border-black transition-all duration-300 relative overflow-hidden" 
-                          style={{ width: `${Math.max(2, currentFile.progress)}%` }}
-                        >
-                           <div className="absolute top-0 left-0 w-full h-full bg-white/20"></div>
-                        </div>
-                      </div>
-                      <p className="text-xs text-gray-500 font-mono mt-2">{currentFile.file.name}</p>
+              ) : queue.length > 0 ? (
+                // QUEUE VIEW
+                <div className="flex flex-col h-full min-h-[500px] p-2">
+                    <div className="flex items-center gap-2 mb-4 px-2">
+                        <Cog className={`text-primary ${status === ProcessStatus.PROCESSING ? 'animate-spin' : ''}`} size={24} />
+                        <h3 className="text-xl font-black uppercase">{t('processing')}</h3>
                     </div>
-                  )}
+
+                    <div className="flex-grow overflow-y-auto space-y-3 pr-2 custom-scrollbar">
+                        {queue.map((item, idx) => (
+                            <div key={item.id} className="bg-white border-2 border-black rounded-lg p-4 shadow-sm flex items-center gap-4">
+                                <div className="shrink-0 w-10 h-10 flex items-center justify-center bg-gray-100 rounded-md border-2 border-black">
+                                    {item.status === ProcessStatus.COMPLETED ? (
+                                        <CheckCircle className="text-green-600" size={24} />
+                                    ) : item.status === ProcessStatus.PROCESSING ? (
+                                        <Cog className="text-primary animate-spin" size={24} />
+                                    ) : item.status === ProcessStatus.ERROR ? (
+                                        <AlertCircle className="text-red-500" size={24} />
+                                    ) : (
+                                        <Clock className="text-gray-400" size={24} />
+                                    )}
+                                </div>
+                                <div className="flex-grow min-w-0">
+                                    <div className="flex justify-between mb-1">
+                                        <span className="font-bold text-sm truncate">{item.file.name}</span>
+                                        <span className={`text-xs font-bold ${item.status === ProcessStatus.COMPLETED ? 'text-green-600' : 'text-gray-500'}`}>
+                                            {item.status === ProcessStatus.QUEUED ? 'WAITING' : 
+                                             item.status === ProcessStatus.COMPLETED ? 'DONE' : 
+                                             item.status === ProcessStatus.ERROR ? 'ERROR' : 
+                                             `${Math.round(item.progress)}%`}
+                                        </span>
+                                    </div>
+                                    <div className="h-2 bg-gray-100 rounded-full border border-black/10 overflow-hidden">
+                                        <div 
+                                            className={`h-full transition-all duration-300 ${
+                                                item.status === ProcessStatus.ERROR ? 'bg-red-400' :
+                                                item.status === ProcessStatus.COMPLETED ? 'bg-green-500' : 'bg-primary'
+                                            }`}
+                                            style={{ width: `${item.progress}%` }}
+                                        ></div>
+                                    </div>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
                 </div>
               ) : (
                 <DropZone 
