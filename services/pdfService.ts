@@ -186,7 +186,8 @@ export const mergePdfs = async (
   }
   
   const pdfBytes = await mergedPdf.save();
-  return new Blob([pdfBytes], { type: 'application/pdf' });
+  // Casting to any to avoid "Uint8Array<ArrayBufferLike> is not assignable to BlobPart" TS error
+  return new Blob([pdfBytes as any], { type: 'application/pdf' });
 };
 
 /**
@@ -210,7 +211,8 @@ export const splitPdf = async (
     newPdf.addPage(copiedPage);
     
     const pdfBytes = await newPdf.save();
-    resultBlobs.push(new Blob([pdfBytes], { type: 'application/pdf' }));
+    // Casting to any to avoid "Uint8Array<ArrayBufferLike> is not assignable to BlobPart" TS error
+    resultBlobs.push(new Blob([pdfBytes as any], { type: 'application/pdf' }));
     
     onProgress(i + 1, pages.length);
   }
