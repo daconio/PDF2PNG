@@ -941,7 +941,7 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ file, onSave, onClose,
                         onMouseDown={(e) => e.preventDefault()} 
                         value={fontFamily} 
                         onChange={(e) => setFontFamily(e.target.value)} 
-                        className="text-xs border border-gray-300 rounded p-1 max-w-[100px] focus:outline-none focus:border-black cursor-pointer"
+                        className="text-xs border border-gray-300 rounded p-1 max-w-[100px] focus:outline-none focus:border-black cursor-pointer font-bold"
                         style={{ fontFamily: fontFamily.replace(/"/g, '') }}
                      >
                        {FONT_OPTIONS.map((opt) => (
