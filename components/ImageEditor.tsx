@@ -3,7 +3,8 @@ import {
   X, Save, Undo, Redo, Eraser, Type, Minus, Plus, 
   Crop, RotateCw, SlidersHorizontal, Check, MousePointer2, 
   Pen, Square, Circle as CircleIcon, Slash, ArrowRight,
-  AlignLeft, AlignCenter, AlignRight, Pipette, Triangle, PaintBucket, Move, ScanSearch
+  AlignLeft, AlignCenter, AlignRight, Pipette, Triangle, PaintBucket, Move, ScanSearch,
+  ZoomIn, ZoomOut, Maximize
 } from 'lucide-react';
 import { Button } from './Button';
 import { Tooltip } from './Tooltip';
@@ -29,55 +30,74 @@ const FONT_OPTIONS = [
 
 type DrawingTool = 'eraser' | 'text' | 'pen' | 'line' | 'arrow' | 'rect' | 'circle' | 'triangle' | 'eyedropper';
 
+interface TextObject {
+  id: string;
+  x: number;
+  y: number;
+  text: string;
+  color: string;
+  size: number;
+  fontFamily: string;
+  align: CanvasTextAlign;
+}
+
+interface HistoryItem {
+  imageData: ImageData;
+  textObjects: TextObject[];
+}
+
 export const ImageEditor: React.FC<ImageEditorProps> = ({ file, onSave, onClose, initialMode = 'draw' }) => {
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-  const tempCanvasRef = useRef<HTMLCanvasElement>(null); // Layer for shapes
+  const canvasRef = useRef<HTMLCanvasElement>(null);      // Display Canvas (Combines Buffer + Text)
+  const tempCanvasRef = useRef<HTMLCanvasElement>(null);  // Interaction Layer (Pen trails, Shapes drag, Crop UI)
+  const bufferCanvasRef = useRef<HTMLCanvasElement>(document.createElement('canvas')); // Offscreen Buffer (Pixel Data Only)
   const containerRef = useRef<HTMLDivElement>(null);
   
-  // Refs for drawing state to avoid re-renders during mousemove
+  // Refs for drawing state
   const isDrawingRef = useRef(false);
   const startPosRef = useRef<{ x: number; y: number } | null>(null);
-  const lastPosRef = useRef<{ x: number; y: number } | null>(null); // For smooth pen strokes
+  const lastPosRef = useRef<{ x: number; y: number } | null>(null);
+  const canvasMetricsRef = useRef<{ left: number; top: number; scaleX: number; scaleY: number } | null>(null);
+  const currentPosRef = useRef<{ x: number; y: number } | null>(null);
+  const rafIdRef = useRef<number | null>(null);
+  const activeToolParamsRef = useRef<any>(null);
 
   const [ctx, setCtx] = useState<CanvasRenderingContext2D | null>(null);
   const [tempCtx, setTempCtx] = useState<CanvasRenderingContext2D | null>(null);
   
-  // History State
-  const [history, setHistory] = useState<ImageData[]>([]);
+  // State
+  const [history, setHistory] = useState<HistoryItem[]>([]);
   const [historyStep, setHistoryStep] = useState<number>(-1);
+  const [textObjects, setTextObjects] = useState<TextObject[]>([]);
   
-  // Modes
   const [mode, setMode] = useState<ToolMode>(initialMode);
-  
-  // Drawing State
   const [drawTool, setDrawTool] = useState<DrawingTool>('pen');
   const [isFilled, setIsFilled] = useState(false);
   
   // Tool Config
   const [strokeSize, setStrokeSize] = useState(5);
   const [strokeColor, setStrokeColor] = useState('#000000');
-  const [opacity, setOpacity] = useState(100); // 0-100
+  const [opacity, setOpacity] = useState(100);
 
   // Text Specific
   const [textSize, setTextSize] = useState(40);
   const [fontFamily, setFontFamily] = useState(FONT_OPTIONS[0].value);
   const [textAlign, setTextAlign] = useState<CanvasTextAlign>('left');
-  const [textInput, setTextInput] = useState<{ x: number; y: number; value: string } | null>(null);
+  const [textInput, setTextInput] = useState<{ id?: string; x: number; y: number; value: string } | null>(null);
   const textInputRef = useRef<HTMLInputElement>(null);
 
-  // Text Dragging Refs
+  // Dragging Text Input
   const isDraggingTextRef = useRef(false);
   const textDragStartRef = useRef<{ x: number; y: number } | null>(null);
   const textStartPosRef = useRef<{ x: number; y: number } | null>(null);
 
-  // Crop State
+  // Crop / Adjust / Scale
   const [cropSelection, setCropSelection] = useState<{ x: number, y: number, w: number, h: number } | null>(null);
   const [isSelectingCrop, setIsSelectingCrop] = useState(false);
   const [cropStart, setCropStart] = useState<{ x: number, y: number } | null>(null);
-
-  // Adjustment State
   const [brightness, setBrightness] = useState(100);
   const [contrast, setContrast] = useState(100);
+  const [scale, setScale] = useState(1);
+  const [dimensions, setDimensions] = useState({ width: 0, height: 0 });
 
   // Initialize Canvas
   useEffect(() => {
@@ -85,8 +105,8 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ file, onSave, onClose,
     const tempCanvas = tempCanvasRef.current;
     if (!canvas || !tempCanvas) return;
 
-    const context = canvas.getContext('2d', { willReadFrequently: true });
-    const tempContext = tempCanvas.getContext('2d');
+    const context = canvas.getContext('2d', { willReadFrequently: true, desynchronized: true });
+    const tempContext = tempCanvas.getContext('2d', { desynchronized: true });
     
     if (!context || !tempContext) return;
     setCtx(context);
@@ -97,52 +117,104 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ file, onSave, onClose,
     img.crossOrigin = "anonymous"; 
     
     img.onload = () => {
-      // Set canvas size to match image natural size
+      // Set sizes
       canvas.width = img.width;
       canvas.height = img.height;
       tempCanvas.width = img.width;
       tempCanvas.height = img.height;
-
-      context.lineCap = 'round';
-      context.lineJoin = 'round';
-      context.drawImage(img, 0, 0);
       
-      // Initialize history
-      const initialData = context.getImageData(0, 0, canvas.width, canvas.height);
-      setHistory([initialData]);
-      setHistoryStep(0);
+      // Setup Buffer Canvas (The Pixel Layer)
+      bufferCanvasRef.current.width = img.width;
+      bufferCanvasRef.current.height = img.height;
+      const bCtx = bufferCanvasRef.current.getContext('2d');
+      if (bCtx) {
+          bCtx.drawImage(img, 0, 0);
+          
+          // Initial Render
+          context.drawImage(bufferCanvasRef.current, 0, 0);
+
+          // Initial History
+          const initialData = bCtx.getImageData(0, 0, img.width, img.height);
+          setHistory([{ imageData: initialData, textObjects: [] }]);
+          setHistoryStep(0);
+      }
+      
+      setDimensions({ width: img.width, height: img.height });
+
+      // Auto Fit
+      if (containerRef.current) {
+        const padding = 20;
+        const availW = containerRef.current.clientWidth - padding;
+        const availH = containerRef.current.clientHeight - padding;
+        const scaleW = availW / img.width;
+        const scaleH = availH / img.height;
+        setScale(Math.min(scaleW, scaleH, 1));
+      }
     };
   }, [file.url]);
 
-  // Focus input when it appears
+  // Main Render Function: Combines Pixel Buffer + Vector Text Objects
+  const renderCanvas = () => {
+      if (!ctx || !canvasRef.current) return;
+      
+      // 1. Clear & Draw Buffer (Pixels)
+      ctx.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height);
+      ctx.drawImage(bufferCanvasRef.current, 0, 0);
+
+      // 2. Draw Text Objects (Vectors)
+      textObjects.forEach(obj => {
+          ctx.save();
+          ctx.font = `bold ${obj.size}px ${obj.fontFamily}`;
+          ctx.fillStyle = obj.color;
+          ctx.textAlign = obj.align;
+          ctx.textBaseline = 'alphabetic'; // Standardize baseline
+          ctx.fillText(obj.text, obj.x, obj.y);
+          ctx.restore();
+      });
+  };
+
+  // Re-render when text objects change
+  useEffect(() => {
+      renderCanvas();
+  }, [textObjects]);
+
+  const fitToScreen = () => {
+      if (!containerRef.current || dimensions.width === 0) return;
+      const padding = 20;
+      const availW = containerRef.current.clientWidth - padding;
+      const availH = containerRef.current.clientHeight - padding;
+      const scaleW = availW / dimensions.width;
+      const scaleH = availH / dimensions.height;
+      setScale(Math.min(scaleW, scaleH));
+  };
+
   useEffect(() => {
     if (textInput && textInputRef.current) {
       textInputRef.current.focus();
     }
   }, [textInput]);
 
-  // Handle Text Dragging
+  // Text Dragging
   useEffect(() => {
     const handleMouseMove = (e: MouseEvent) => {
       if (isDraggingTextRef.current && textStartPosRef.current && textDragStartRef.current) {
          e.preventDefault();
-         const dx = e.clientX - textDragStartRef.current.x;
-         const dy = e.clientY - textDragStartRef.current.y;
-         setTextInput(prev => prev ? ({ ...prev, x: textStartPosRef.current!.x + dx, y: textStartPosRef.current!.y + dy }) : null);
+         const dxVisual = e.clientX - textDragStartRef.current.x;
+         const dyVisual = e.clientY - textDragStartRef.current.y;
+         const dxCanvas = dxVisual / scale;
+         const dyCanvas = dyVisual / scale;
+
+         setTextInput(prev => prev ? ({ ...prev, x: textStartPosRef.current!.x + dxCanvas, y: textStartPosRef.current!.y + dyCanvas }) : null);
       }
     };
-
-    const handleMouseUp = () => {
-      isDraggingTextRef.current = false;
-    };
-
+    const handleMouseUp = () => { isDraggingTextRef.current = false; };
     window.addEventListener('mousemove', handleMouseMove);
     window.addEventListener('mouseup', handleMouseUp);
     return () => {
       window.removeEventListener('mousemove', handleMouseMove);
       window.removeEventListener('mouseup', handleMouseUp);
     };
-  }, []);
+  }, [scale]);
 
   const handleTextMouseDown = (e: React.MouseEvent) => {
       e.stopPropagation();
@@ -153,188 +225,144 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ file, onSave, onClose,
       textStartPosRef.current = { x: textInput.x, y: textInput.y };
   };
 
-  const saveState = (context: CanvasRenderingContext2D = ctx!) => {
-    if (!context || !canvasRef.current) return;
-    const imageData = context.getImageData(0, 0, canvasRef.current.width, canvasRef.current.height);
-    
-    // Create new history path starting from current step, discarding any "future" states
+  const saveState = () => {
+    const bCtx = bufferCanvasRef.current.getContext('2d');
+    if (!bCtx) return;
+
+    // Save Buffer pixels AND current text objects
+    const currentImageData = bCtx.getImageData(0, 0, bufferCanvasRef.current.width, bufferCanvasRef.current.height);
+    const currentTexts = [...textObjects];
+
     const newHistory = history.slice(0, historyStep + 1);
-    newHistory.push(imageData);
+    newHistory.push({ imageData: currentImageData, textObjects: currentTexts });
     
-    // Limit history size to 20 to manage memory
-    if (newHistory.length > 20) {
-        newHistory.shift();
-    }
+    if (newHistory.length > 20) newHistory.shift();
     
     setHistory(newHistory);
     setHistoryStep(newHistory.length - 1);
   };
 
   const restoreState = (index: number) => {
-      if (!ctx || !canvasRef.current || index < 0 || index >= history.length) return;
-      const imageData = history[index];
+      if (index < 0 || index >= history.length) return;
+      const item = history[index];
       
-      // Sync temp canvas size just in case
-      if (tempCanvasRef.current) {
-          tempCanvasRef.current.width = imageData.width;
-          tempCanvasRef.current.height = imageData.height;
+      const bCtx = bufferCanvasRef.current.getContext('2d');
+      if (!bCtx || !canvasRef.current || !tempCanvasRef.current) return;
+
+      // Restore Canvas Size if changed
+      if (canvasRef.current.width !== item.imageData.width || canvasRef.current.height !== item.imageData.height) {
+          canvasRef.current.width = item.imageData.width;
+          canvasRef.current.height = item.imageData.height;
+          tempCanvasRef.current.width = item.imageData.width;
+          tempCanvasRef.current.height = item.imageData.height;
+          bufferCanvasRef.current.width = item.imageData.width;
+          bufferCanvasRef.current.height = item.imageData.height;
+          setDimensions({ width: item.imageData.width, height: item.imageData.height });
       }
 
-      // Resize canvas if needed (for crop/rotate undo/redo)
-      if (canvasRef.current.width !== imageData.width || canvasRef.current.height !== imageData.height) {
-        canvasRef.current.width = imageData.width;
-        canvasRef.current.height = imageData.height;
-      }
+      // Restore Pixels to Buffer
+      bCtx.putImageData(item.imageData, 0, 0);
       
-      ctx.putImageData(imageData, 0, 0);
+      // Restore Texts
+      setTextObjects(item.textObjects);
+      
       setHistoryStep(index);
+      
+      // Trigger render
+      setTimeout(renderCanvas, 0);
   };
 
-  const handleUndo = () => {
-    if (historyStep > 0) {
-        restoreState(historyStep - 1);
-    }
-  };
-
-  const handleRedo = () => {
-    if (historyStep < history.length - 1) {
-        restoreState(historyStep + 1);
-    }
-  };
+  const handleUndo = () => { if (historyStep > 0) restoreState(historyStep - 1); };
+  const handleRedo = () => { if (historyStep < history.length - 1) restoreState(historyStep + 1); };
 
   // Keyboard Shortcuts
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      // Check if user is typing in an input field (like text tool)
       if ((e.target as HTMLElement).tagName === 'INPUT') return;
-
       const isCtrlOrCmd = e.ctrlKey || e.metaKey;
-
       if (isCtrlOrCmd && e.key.toLowerCase() === 'z') {
         e.preventDefault();
-        if (e.shiftKey) {
-          handleRedo();
-        } else {
-          handleUndo();
-        }
+        e.shiftKey ? handleRedo() : handleUndo();
       } else if (isCtrlOrCmd && e.key.toLowerCase() === 'y') {
         e.preventDefault();
         handleRedo();
       }
     };
-
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [historyStep, history, ctx]);
+  }, [historyStep, history]);
 
-  const getCoordinates = (e: React.MouseEvent<HTMLElement>) => {
-    // We can use tempCanvas for coordinate calculation as it's overlaying exactly
-    if (!tempCanvasRef.current) return { x: 0, y: 0 };
+  const updateCanvasMetrics = () => {
+    if (!tempCanvasRef.current) return;
     const rect = tempCanvasRef.current.getBoundingClientRect();
-    const scaleX = tempCanvasRef.current.width / rect.width;
-    const scaleY = tempCanvasRef.current.height / rect.height;
-    return {
-      x: (e.clientX - rect.left) * scaleX,
-      y: (e.clientY - rect.top) * scaleY
+    canvasMetricsRef.current = {
+        left: rect.left,
+        top: rect.top,
+        scaleX: tempCanvasRef.current.width / rect.width,
+        scaleY: tempCanvasRef.current.height / rect.height
     };
   };
 
-  // --- DRAWING LOGIC ---
-  const startDrawing = (e: React.MouseEvent<HTMLCanvasElement>) => {
-    if (mode !== 'draw' || !ctx || !tempCtx || !canvasRef.current || !tempCanvasRef.current) return;
-    
-    const { x, y } = getCoordinates(e);
-
-    // Handle Eyedropper Tool
-    if (drawTool === 'eyedropper') {
-        const pixel = ctx.getImageData(x, y, 1, 1).data;
-        // Convert [r,g,b] to hex
-        const hex = "#" + ((1 << 24) + (pixel[0] << 16) + (pixel[1] << 8) + pixel[2]).toString(16).slice(1);
-        setStrokeColor(hex);
-        setDrawTool('pen');
-        return;
-    }
-
-    // Handle Text Tool
-    if (drawTool === 'text') {
-        const rect = tempCanvasRef.current.getBoundingClientRect();
-        const clickX = e.clientX - rect.left;
-        const clickY = e.clientY - rect.top;
-
-        if (textInput) {
-            commitText();
-            setTextInput({ x: clickX, y: clickY, value: '' });
-        } else {
-            setTextInput({ x: clickX, y: clickY, value: '' });
-        }
-        return;
-    }
-
-    isDrawingRef.current = true;
-    startPosRef.current = { x, y };
-    lastPosRef.current = { x, y };
-
-    // Setup Contexts
-    // Main context for Pen/Eraser
-    ctx.lineCap = 'round';
-    ctx.lineJoin = 'round';
-    ctx.lineWidth = strokeSize;
-    ctx.strokeStyle = drawTool === 'eraser' ? '#FFFFFF' : strokeColor;
-    ctx.globalAlpha = drawTool === 'eraser' ? 1.0 : opacity / 100;
-
-    // Temp context for Shapes
-    tempCtx.lineCap = 'round';
-    tempCtx.lineJoin = 'round';
-    tempCtx.lineWidth = strokeSize;
-    tempCtx.strokeStyle = strokeColor;
-    tempCtx.fillStyle = strokeColor;
-    tempCtx.globalAlpha = opacity / 100;
-    
-    if (drawTool === 'pen' || drawTool === 'eraser') {
-      ctx.beginPath();
-      ctx.moveTo(x, y);
-      // Draw single point for click
-      ctx.lineTo(x, y);
-      ctx.stroke();
-    }
+  const getCoordinates = (clientX: number, clientY: number) => {
+    if (!canvasMetricsRef.current) updateCanvasMetrics();
+    if (!canvasMetricsRef.current) return { x: 0, y: 0 };
+    const { left, top, scaleX, scaleY } = canvasMetricsRef.current;
+    return { x: (clientX - left) * scaleX, y: (clientY - top) * scaleY };
   };
 
-  const draw = (e: React.MouseEvent<HTMLCanvasElement>) => {
-    if (!isDrawingRef.current || mode !== 'draw' || !ctx || !tempCtx || !canvasRef.current || !tempCanvasRef.current) return;
-    
-    const { x, y } = getCoordinates(e);
+  // Check if click hits a text object
+  const hitTestText = (x: number, y: number): TextObject | null => {
+      if (!ctx) return null;
+      // Reverse iterate to pick top-most
+      for (let i = textObjects.length - 1; i >= 0; i--) {
+          const obj = textObjects[i];
+          ctx.save();
+          ctx.font = `bold ${obj.size}px ${obj.fontFamily}`;
+          const metrics = ctx.measureText(obj.text);
+          const height = obj.size; // Approximate height
+          
+          let startX = obj.x;
+          if (obj.align === 'center') startX = obj.x - metrics.width / 2;
+          if (obj.align === 'right') startX = obj.x - metrics.width;
 
-    if (drawTool === 'pen' || drawTool === 'eraser') {
-      // Optimization: Draw individual segment instead of full path
-      if (lastPosRef.current) {
-          ctx.beginPath();
-          ctx.moveTo(lastPosRef.current.x, lastPosRef.current.y);
-          ctx.lineTo(x, y);
-          ctx.stroke();
-          lastPosRef.current = { x, y };
+          // Bounding box (simple approximation)
+          // Y is baseline, so box is from y - height to y + descent (approx size * 0.2)
+          const top = obj.y - height * 0.8;
+          const bottom = obj.y + height * 0.2;
+          
+          ctx.restore();
+
+          if (x >= startX && x <= startX + metrics.width && y >= top && y <= bottom) {
+              return obj;
+          }
       }
-    } else if (startPosRef.current) {
-      // Optimization: Clear and redraw only on Temp Canvas
+      return null;
+  };
+
+  // Shapes Render Loop
+  const performShapeRender = () => {
+      if (!tempCtx || !tempCanvasRef.current || !startPosRef.current || !currentPosRef.current || !activeToolParamsRef.current) return;
+      const { tool, strokeSize, color, isFilled, opacity, shiftKey } = activeToolParamsRef.current;
+      const { x: startX, y: startY } = startPosRef.current;
+      let { x: currentX, y: currentY } = currentPosRef.current;
+
       tempCtx.clearRect(0, 0, tempCanvasRef.current.width, tempCanvasRef.current.height);
-      
-      const startX = startPosRef.current.x;
-      const startY = startPosRef.current.y;
-      
-      let currentX = x;
-      let currentY = y;
 
-      // Handle Shift key for constraints
-      if (e.shiftKey) {
-        const dx = x - startX;
-        const dy = y - startY;
+      tempCtx.lineCap = 'round';
+      tempCtx.lineJoin = 'round';
+      tempCtx.lineWidth = strokeSize;
+      tempCtx.strokeStyle = color;
+      tempCtx.fillStyle = color;
+      tempCtx.globalAlpha = opacity / 100;
 
-        if (drawTool === 'rect' || drawTool === 'circle' || drawTool === 'triangle') {
-            // Constrain to perfect square/circle (1:1 aspect ratio)
+      if (shiftKey) {
+        const dx = currentX - startX;
+        const dy = currentY - startY;
+        if (tool === 'rect' || tool === 'circle' || tool === 'triangle') {
             const side = Math.max(Math.abs(dx), Math.abs(dy));
             currentX = startX + (dx >= 0 ? side : -side);
             currentY = startY + (dy >= 0 ? side : -side);
-        } else if (drawTool === 'line' || drawTool === 'arrow') {
-            // Snap to 45 degree increments
+        } else if (tool === 'line' || tool === 'arrow') {
             const angle = Math.atan2(dy, dx);
             const snapAngle = Math.round(angle / (Math.PI / 4)) * (Math.PI / 4);
             const dist = Math.sqrt(dx * dx + dy * dy);
@@ -347,71 +375,154 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ file, onSave, onClose,
       const h = currentY - startY;
 
       tempCtx.beginPath();
-      
-      if (drawTool === 'line') {
+      if (tool === 'line') {
         tempCtx.moveTo(startX, startY);
         tempCtx.lineTo(currentX, currentY);
-      } else if (drawTool === 'arrow') {
+      } else if (tool === 'arrow') {
         const headLength = Math.max(10, strokeSize * 3);
         const angle = Math.atan2(currentY - startY, currentX - startX);
-        
         tempCtx.moveTo(startX, startY);
         tempCtx.lineTo(currentX, currentY);
-        
-        // Draw Arrowhead
         tempCtx.lineTo(currentX - headLength * Math.cos(angle - Math.PI / 6), currentY - headLength * Math.sin(angle - Math.PI / 6));
         tempCtx.moveTo(currentX, currentY);
         tempCtx.lineTo(currentX - headLength * Math.cos(angle + Math.PI / 6), currentY - headLength * Math.sin(angle + Math.PI / 6));
-      } else if (drawTool === 'rect') {
+      } else if (tool === 'rect') {
         tempCtx.rect(startX, startY, w, h);
-      } else if (drawTool === 'circle') {
-        tempCtx.ellipse(
-            startX + w / 2, 
-            startY + h / 2, 
-            Math.abs(w / 2), 
-            Math.abs(h / 2), 
-            0, 0, 2 * Math.PI
-        );
-      } else if (drawTool === 'triangle') {
+      } else if (tool === 'circle') {
+        tempCtx.ellipse(startX + w / 2, startY + h / 2, Math.abs(w / 2), Math.abs(h / 2), 0, 0, 2 * Math.PI);
+      } else if (tool === 'triangle') {
         const topX = startX + w / 2;
         const topY = startY;
         const leftX = startX;
         const leftY = startY + h;
         const rightX = startX + w;
         const rightY = startY + h;
-
         tempCtx.moveTo(topX, topY);
         tempCtx.lineTo(rightX, rightY);
         tempCtx.lineTo(leftX, leftY);
         tempCtx.closePath();
       }
 
-      if (isFilled && ['rect', 'circle', 'triangle'].includes(drawTool)) {
-          tempCtx.fill();
-      } else {
+      if (isFilled && ['rect', 'circle', 'triangle'].includes(tool)) tempCtx.fill();
+      else tempCtx.stroke();
+      
+      rafIdRef.current = requestAnimationFrame(performShapeRender);
+  };
+
+  const handlePointerDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    if (mode !== 'draw' || !ctx || !tempCtx || !canvasRef.current || !tempCanvasRef.current) return;
+    updateCanvasMetrics();
+    e.currentTarget.setPointerCapture(e.pointerId);
+
+    const { x, y } = getCoordinates(e.clientX, e.clientY);
+
+    // Eyedropper: Pick from Buffer (Pixels)
+    if (drawTool === 'eyedropper') {
+        const bCtx = bufferCanvasRef.current.getContext('2d');
+        if (bCtx) {
+            const pixel = bCtx.getImageData(x, y, 1, 1).data;
+            const hex = "#" + ((1 << 24) + (pixel[0] << 16) + (pixel[1] << 8) + pixel[2]).toString(16).slice(1);
+            setStrokeColor(hex);
+            setDrawTool('pen');
+        }
+        return;
+    }
+
+    // Text Tool: Hit Detection or New Text
+    if (drawTool === 'text') {
+        // If we are already editing, commit first
+        if (textInput) commitText();
+
+        const hit = hitTestText(x, y);
+        if (hit) {
+            // Edit existing text
+            setTextInput({ id: hit.id, x: hit.x, y: hit.y, value: hit.text });
+            // Remove from objects temporarily (so it doesn't double render)
+            setTextObjects(prev => prev.filter(t => t.id !== hit.id));
+            // Set styles to match
+            setStrokeColor(hit.color);
+            setTextSize(hit.size);
+            setFontFamily(hit.fontFamily);
+            setTextAlign(hit.align);
+        } else {
+            // New text
+            setTextInput({ x, y, value: '' });
+        }
+        return;
+    }
+
+    // Pen / Shapes
+    isDrawingRef.current = true;
+    startPosRef.current = { x, y };
+    lastPosRef.current = { x, y };
+    currentPosRef.current = { x, y };
+
+    // Setup Temp Context (for interaction)
+    tempCtx.lineCap = 'round';
+    tempCtx.lineJoin = 'round';
+    tempCtx.lineWidth = strokeSize;
+    tempCtx.strokeStyle = drawTool === 'eraser' ? '#FFFFFF' : strokeColor;
+    tempCtx.globalAlpha = drawTool === 'eraser' ? 1.0 : opacity / 100;
+
+    if (['rect', 'circle', 'triangle', 'line', 'arrow'].includes(drawTool)) {
+        activeToolParamsRef.current = {
+            tool: drawTool,
+            strokeSize,
+            color: strokeColor,
+            isFilled,
+            opacity,
+            shiftKey: e.shiftKey
+        };
+        rafIdRef.current = requestAnimationFrame(performShapeRender);
+    } else if (drawTool === 'pen' || drawTool === 'eraser') {
+        tempCtx.beginPath();
+        tempCtx.moveTo(x, y);
+        tempCtx.lineTo(x, y);
+        tempCtx.stroke();
+    }
+  };
+
+  const handlePointerMove = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    if (!isDrawingRef.current || mode !== 'draw' || !tempCtx) return;
+    const { x, y } = getCoordinates(e.clientX, e.clientY);
+    currentPosRef.current = { x, y };
+    if (activeToolParamsRef.current) activeToolParamsRef.current.shiftKey = e.shiftKey;
+
+    if (drawTool === 'pen' || drawTool === 'eraser') {
+      if (lastPosRef.current) {
+          tempCtx.beginPath();
+          tempCtx.moveTo(lastPosRef.current.x, lastPosRef.current.y);
+          tempCtx.lineTo(x, y);
           tempCtx.stroke();
+          lastPosRef.current = { x, y };
       }
     }
   };
 
-  const stopDrawing = () => {
+  const handlePointerUp = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    e.currentTarget.releasePointerCapture(e.pointerId);
+    
     if (isDrawingRef.current) {
       isDrawingRef.current = false;
-      
-      if (ctx) {
-          ctx.closePath();
-          ctx.globalAlpha = 1.0; 
+      if (rafIdRef.current) {
+          cancelAnimationFrame(rafIdRef.current);
+          rafIdRef.current = null;
       }
 
-      // If shape tool, commit temp canvas to main canvas
-      if ((['rect', 'circle', 'line', 'arrow', 'triangle'].includes(drawTool)) && tempCanvasRef.current && ctx && tempCtx) {
-          ctx.drawImage(tempCanvasRef.current, 0, 0);
-          tempCtx.clearRect(0, 0, tempCanvasRef.current.width, tempCanvasRef.current.height);
+      // Commit Temp Canvas (Pen/Shapes) to Buffer (Pixel Layer)
+      const bCtx = bufferCanvasRef.current.getContext('2d');
+      if (bCtx && tempCanvasRef.current) {
+         if (['pen', 'eraser'].includes(drawTool)) tempCtx?.closePath();
+         bCtx.drawImage(tempCanvasRef.current, 0, 0);
+         tempCtx?.clearRect(0, 0, tempCanvasRef.current.width, tempCanvasRef.current.height);
       }
 
       startPosRef.current = null;
       lastPosRef.current = null;
-      saveState();
+      activeToolParamsRef.current = null;
+      
+      renderCanvas(); // Update Screen
+      saveState();    // Save History
     }
   };
 
@@ -423,72 +534,102 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ file, onSave, onClose,
 
     if (!textInput.value.trim()) {
         setTextInput(null);
+        renderCanvas(); // Just re-render to ensure clean state
         return;
     }
 
-    const rect = canvasRef.current.getBoundingClientRect();
-    const scaleX = canvasRef.current.width / rect.width;
-    const scaleY = canvasRef.current.height / rect.height;
+    const newTextObj: TextObject = {
+        id: textInput.id || Math.random().toString(36).substr(2, 9),
+        x: textInput.x,
+        y: textInput.y,
+        text: textInput.value,
+        color: strokeColor,
+        size: textSize,
+        fontFamily: fontFamily,
+        align: textAlign
+    };
 
-    const x = textInput.x * scaleX;
-    const y = (textInput.y * scaleY) + (textSize * 0.8); 
-
-    ctx.save();
-    ctx.font = `bold ${textSize}px ${fontFamily}`;
-    ctx.fillStyle = strokeColor; 
-    ctx.textAlign = textAlign;
-    ctx.fillText(textInput.value, x, y);
-    ctx.restore();
-    
-    saveState();
+    setTextObjects(prev => [...prev, newTextObj]);
     setTextInput(null);
+    // saveState will be called in useEffect or we call it manually
+    // Since setTextObjects is async, we can't save immediately unless we use updated list.
+    // Let's use a timeout or manual composition for saveState. 
+    // Easier: update state, let render happen, then save.
+    setTimeout(() => saveState(), 0);
+  };
+
+  // --- BAKE TEXTS FUNCTION ---
+  // Merges texts into buffer pixels. Used for transformations (Crop/Rotate/Adjust)
+  const bakeTextsToBuffer = () => {
+      const bCtx = bufferCanvasRef.current.getContext('2d');
+      if (!bCtx) return;
+      
+      textObjects.forEach(obj => {
+          bCtx.save();
+          bCtx.font = `bold ${obj.size}px ${obj.fontFamily}`;
+          bCtx.fillStyle = obj.color;
+          bCtx.textAlign = obj.align;
+          bCtx.textBaseline = 'alphabetic';
+          bCtx.fillText(obj.text, obj.x, obj.y);
+          bCtx.restore();
+      });
+      setTextObjects([]); // Clear vectors as they are now pixels
   };
 
   // --- ROTATE LOGIC ---
   const handleRotate = () => {
-    if (!ctx || !canvasRef.current || !tempCanvasRef.current) return;
-    const canvas = canvasRef.current;
-    
+    bakeTextsToBuffer(); // Flatten text before rotation
+
+    const bCtx = bufferCanvasRef.current.getContext('2d');
+    if (!bCtx) return;
+
+    // Create temp buffer for rotation
     const tempCanvas = document.createElement('canvas');
-    tempCanvas.width = canvas.height;
-    tempCanvas.height = canvas.width;
-    const tempCtx = tempCanvas.getContext('2d');
-    if (!tempCtx) return;
+    tempCanvas.width = bufferCanvasRef.current.height;
+    tempCanvas.height = bufferCanvasRef.current.width;
+    const tCtx = tempCanvas.getContext('2d');
+    if (!tCtx) return;
 
-    // Rotate 90 degrees clockwise
-    tempCtx.save();
-    tempCtx.translate(tempCanvas.width / 2, tempCanvas.height / 2);
-    tempCtx.rotate((90 * Math.PI) / 180);
-    tempCtx.drawImage(canvas, -canvas.width / 2, -canvas.height / 2);
-    tempCtx.restore();
+    tCtx.translate(tempCanvas.width / 2, tempCanvas.height / 2);
+    tCtx.rotate((90 * Math.PI) / 180);
+    tCtx.drawImage(bufferCanvasRef.current, -bufferCanvasRef.current.width / 2, -bufferCanvasRef.current.height / 2);
 
-    // Update main canvas
-    canvas.width = tempCanvas.width;
-    canvas.height = tempCanvas.height;
-    ctx.drawImage(tempCanvas, 0, 0);
+    // Update Buffer
+    bufferCanvasRef.current.width = tempCanvas.width;
+    bufferCanvasRef.current.height = tempCanvas.height;
+    bCtx.drawImage(tempCanvas, 0, 0);
 
-    // Update temp overlay canvas size
-    tempCanvasRef.current.width = tempCanvas.width;
-    tempCanvasRef.current.height = tempCanvas.height;
+    // Update Display canvases
+    if (canvasRef.current && tempCanvasRef.current) {
+        canvasRef.current.width = tempCanvas.width;
+        canvasRef.current.height = tempCanvas.height;
+        tempCanvasRef.current.width = tempCanvas.width;
+        tempCanvasRef.current.height = tempCanvas.height;
+    }
     
+    setDimensions({ width: tempCanvas.width, height: tempCanvas.height });
+    setTimeout(updateCanvasMetrics, 0);
+    
+    renderCanvas();
     saveState();
+    fitToScreen();
   };
 
   // --- CROP LOGIC ---
   const startCropSelection = (e: React.MouseEvent<HTMLDivElement>) => {
-    if (mode !== 'crop' || !canvasRef.current) return;
-    const rect = canvasRef.current.getBoundingClientRect();
+    if (mode !== 'crop') return;
+    updateCanvasMetrics();
+    const rect = containerRef.current!.querySelector('canvas')!.getBoundingClientRect();
     const x = e.clientX - rect.left;
     const y = e.clientY - rect.top;
-    
     setCropStart({ x, y });
     setCropSelection({ x, y, w: 0, h: 0 });
     setIsSelectingCrop(true);
   };
 
   const updateCropSelection = (e: React.MouseEvent<HTMLDivElement>) => {
-    if (!isSelectingCrop || !cropStart || !canvasRef.current) return;
-    const rect = canvasRef.current.getBoundingClientRect();
+    if (!isSelectingCrop || !cropStart) return;
+    const rect = containerRef.current!.querySelector('canvas')!.getBoundingClientRect();
     const currentX = e.clientX - rect.left;
     const currentY = e.clientY - rect.top;
 
@@ -496,17 +637,16 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ file, onSave, onClose,
     const y = Math.min(currentY, cropStart.y);
     const w = Math.abs(currentX - cropStart.x);
     const h = Math.abs(currentY - cropStart.y);
-
     setCropSelection({ x, y, w, h });
   };
 
-  const endCropSelection = () => {
-    setIsSelectingCrop(false);
-  };
+  const endCropSelection = () => setIsSelectingCrop(false);
 
   const applyCrop = () => {
-    if (!cropSelection || !ctx || !canvasRef.current || !tempCanvasRef.current || cropSelection.w < 5 || cropSelection.h < 5) return;
+    if (!cropSelection || !ctx || !canvasRef.current || cropSelection.w < 5 || cropSelection.h < 5) return;
     
+    bakeTextsToBuffer(); // Flatten text before crop
+
     const rect = canvasRef.current.getBoundingClientRect();
     const scaleX = canvasRef.current.width / rect.width;
     const scaleY = canvasRef.current.height / rect.height;
@@ -517,19 +657,25 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ file, onSave, onClose,
     const sourceH = cropSelection.h * scaleY;
 
     try {
-        const croppedData = ctx.getImageData(sourceX, sourceY, sourceW, sourceH);
+        const bCtx = bufferCanvasRef.current.getContext('2d');
+        if (!bCtx) return;
         
-        canvasRef.current.width = sourceW;
-        canvasRef.current.height = sourceH;
-        ctx.putImageData(croppedData, 0, 0);
+        const croppedData = bCtx.getImageData(sourceX, sourceY, sourceW, sourceH);
+        
+        // Update all canvases
+        [canvasRef.current, tempCanvasRef.current, bufferCanvasRef.current].forEach(c => {
+            if(c) { c.width = sourceW; c.height = sourceH; }
+        });
 
-        // Update temp overlay canvas size
-        tempCanvasRef.current.width = sourceW;
-        tempCanvasRef.current.height = sourceH;
+        bCtx.putImageData(croppedData, 0, 0);
         
+        setDimensions({ width: sourceW, height: sourceH });
+
+        renderCanvas();
         saveState();
         setCropSelection(null);
         setMode('draw');
+        setTimeout(updateCanvasMetrics, 0);
     } catch (e) {
         console.error("Crop failed", e);
     }
@@ -537,21 +683,27 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ file, onSave, onClose,
 
   // --- ADJUSTMENT LOGIC ---
   const applyAdjustments = () => {
-    if (!ctx || !canvasRef.current) return;
-    const canvas = canvasRef.current;
+    // Bake adjustments into buffer
+    bakeTextsToBuffer();
+
+    const bCtx = bufferCanvasRef.current.getContext('2d');
+    if (!bCtx) return;
 
     const tempCanvas = document.createElement('canvas');
-    tempCanvas.width = canvas.width;
-    tempCanvas.height = canvas.height;
-    const tempCtx = tempCanvas.getContext('2d');
-    tempCtx?.drawImage(canvas, 0, 0);
+    tempCanvas.width = bufferCanvasRef.current.width;
+    tempCanvas.height = bufferCanvasRef.current.height;
+    const tCtx = tempCanvas.getContext('2d');
+    if(!tCtx) return;
+    
+    tCtx.drawImage(bufferCanvasRef.current, 0, 0);
 
-    ctx.save();
-    ctx.filter = `brightness(${brightness}%) contrast(${contrast}%)`;
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    ctx.drawImage(tempCanvas, 0, 0);
-    ctx.restore();
+    bCtx.save();
+    bCtx.filter = `brightness(${brightness}%) contrast(${contrast}%)`;
+    bCtx.clearRect(0, 0, bCtx.canvas.width, bCtx.canvas.height);
+    bCtx.drawImage(tempCanvas, 0, 0);
+    bCtx.restore();
 
+    renderCanvas();
     saveState();
     setBrightness(100);
     setContrast(100);
@@ -559,34 +711,52 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ file, onSave, onClose,
   };
 
   const handleSave = () => {
-    if (!canvasRef.current) return;
+    if (!bufferCanvasRef.current) return;
     
-    if (mode === 'adjust' && (brightness !== 100 || contrast !== 100)) {
-        const canvas = canvasRef.current;
-        const tempCanvas = document.createElement('canvas');
-        tempCanvas.width = canvas.width;
-        tempCanvas.height = canvas.height;
-        const tempCtx = tempCanvas.getContext('2d');
-        tempCtx?.drawImage(canvas, 0, 0);
+    // Create export canvas that combines everything
+    const exportCanvas = document.createElement('canvas');
+    exportCanvas.width = bufferCanvasRef.current.width;
+    exportCanvas.height = bufferCanvasRef.current.height;
+    const eCtx = exportCanvas.getContext('2d');
+    if (!eCtx) return;
 
-        if (ctx) {
-            ctx.save();
-            ctx.filter = `brightness(${brightness}%) contrast(${contrast}%)`;
-            ctx.clearRect(0, 0, canvas.width, canvas.height);
-            ctx.drawImage(tempCanvas, 0, 0);
-            ctx.restore();
-        }
+    // 1. Draw Buffer
+    eCtx.drawImage(bufferCanvasRef.current, 0, 0);
+    
+    // 2. Apply Filters if in adjust mode and not applied
+    if (mode === 'adjust' && (brightness !== 100 || contrast !== 100)) {
+       const temp = document.createElement('canvas');
+       temp.width = exportCanvas.width;
+       temp.height = exportCanvas.height;
+       temp.getContext('2d')?.drawImage(exportCanvas, 0, 0);
+       
+       eCtx.save();
+       eCtx.filter = `brightness(${brightness}%) contrast(${contrast}%)`;
+       eCtx.clearRect(0,0, exportCanvas.width, exportCanvas.height);
+       eCtx.drawImage(temp, 0, 0);
+       eCtx.restore();
     }
 
-    canvasRef.current.toBlob((blob) => {
+    // 3. Draw Text Objects
+    textObjects.forEach(obj => {
+        eCtx.save();
+        eCtx.font = `bold ${obj.size}px ${obj.fontFamily}`;
+        eCtx.fillStyle = obj.color;
+        eCtx.textAlign = obj.align;
+        eCtx.textBaseline = 'alphabetic';
+        eCtx.fillText(obj.text, obj.x, obj.y);
+        eCtx.restore();
+    });
+
+    exportCanvas.toBlob((blob) => {
       if (blob) onSave(blob);
     }, 'image/png');
   };
 
   const getInputTransform = () => {
-    if (textAlign === 'center') return 'translate(-50%, -50%)';
-    if (textAlign === 'right') return 'translate(-100%, -50%)';
-    return 'translate(0, -50%)';
+    if (textAlign === 'center') return 'translate(-50%, -80%)'; // Adjusted for baseline
+    if (textAlign === 'right') return 'translate(-100%, -80%)';
+    return 'translate(0, -80%)';
   };
 
   const getInputWidth = () => {
@@ -600,29 +770,17 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ file, onSave, onClose,
   };
 
   const handleAutoDetectFont = () => {
-    // 1. Identify context (Korean vs English)
     const text = textInput?.value || '';
     const hasKorean = /[ㄱ-ㅎ|ㅏ-ㅣ|가-힣]/.test(text);
-
-    // 2. Define likely candidates based on document standards
     const krCandidates = [
-        '"Pretendard", sans-serif',      // Modern, common
-        '"Nanum Myeongjo", serif',       // Formal, Serif
-        '"Nanum Gothic", sans-serif',    // Legacy, common
+        '"Pretendard", sans-serif', '"Nanum Myeongjo", serif', '"Nanum Gothic", sans-serif',
     ];
-    
     const enCandidates = [
-        '"Space Grotesk", sans-serif',   // Current App Theme
-        '-apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Malgun Gothic", sans-serif', // System
-        '"Pretendard", sans-serif',      // Also good for EN
+        '"Space Grotesk", sans-serif', '-apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Malgun Gothic", sans-serif', '"Pretendard", sans-serif',
     ];
-
     const candidates = hasKorean ? krCandidates : enCandidates;
-
-    // 3. Find current index and cycle to next
     const currentIndex = candidates.indexOf(fontFamily);
     const nextIndex = (currentIndex + 1) % candidates.length;
-    
     setFontFamily(candidates[nextIndex]);
   };
 
@@ -680,6 +838,21 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ file, onSave, onClose,
               <Tooltip content="Rotate 90°">
                 <button onClick={handleRotate} className="p-2 hover:bg-gray-100 active:bg-gray-200"><RotateCw size={20} /></button>
               </Tooltip>
+            </div>
+            
+            {/* Zoom Controls - New Group */}
+            <div className="flex items-center gap-1 bg-white border border-black px-2 py-1 shadow-sm rounded scale-90 md:scale-100 origin-left">
+                <Tooltip content="Zoom Out">
+                    <button onClick={() => setScale(s => Math.max(0.1, s - 0.1))} className="p-1 hover:bg-gray-100 rounded"><ZoomOut size={16} /></button>
+                </Tooltip>
+                <span className="text-xs font-bold w-10 text-center">{Math.round(scale * 100)}%</span>
+                <Tooltip content="Zoom In">
+                    <button onClick={() => setScale(s => Math.min(5, s + 0.1))} className="p-1 hover:bg-gray-100 rounded"><ZoomIn size={16} /></button>
+                </Tooltip>
+                <div className="w-[1px] h-4 bg-gray-300 mx-1"></div>
+                <Tooltip content="Fit to Screen">
+                    <button onClick={fitToScreen} className="p-1 hover:bg-gray-100 rounded text-blue-600"><Maximize size={16} /></button>
+                </Tooltip>
             </div>
 
             {/* Contextual Options */}
@@ -831,35 +1004,36 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ file, onSave, onClose,
         </div>
 
         {/* Canvas Workspace */}
-        <div className="flex-grow overflow-auto bg-gray-200 relative p-8 flex items-center justify-center cursor-crosshair select-none" ref={containerRef}>
+        <div className="flex-grow overflow-auto bg-gray-200 relative flex items-center justify-center cursor-crosshair select-none" ref={containerRef}>
           <div 
-             className="relative shadow-lg border border-gray-300 bg-white"
+             className="relative shadow-lg border border-gray-300 bg-white origin-center transition-all duration-200 ease-out"
              style={{ 
-                 width: canvasRef.current ? canvasRef.current.clientWidth : 'auto',
-                 height: canvasRef.current ? canvasRef.current.clientHeight : 'auto'
+                 width: dimensions.width * scale,
+                 height: dimensions.height * scale
              }}
           >
-            {/* Main Image Canvas */}
+            {/* Main Display Canvas */}
             <canvas
               ref={canvasRef}
-              className="max-w-none block"
+              className="block w-full h-full"
               style={{
                   filter: mode === 'adjust' ? `brightness(${brightness}%) contrast(${contrast}%)` : 'none',
               }}
             />
             
-            {/* Temp/Interaction Canvas Layer */}
+            {/* Interaction Layer (Temp) */}
             <canvas
               ref={tempCanvasRef}
-              onMouseDown={startDrawing}
-              onMouseMove={draw}
-              onMouseUp={stopDrawing}
-              onMouseLeave={stopDrawing}
-              onClick={(e) => drawTool === 'text' && startDrawing(e)}
-              className="absolute inset-0 max-w-none block"
+              onPointerDown={handlePointerDown}
+              onPointerMove={handlePointerMove}
+              onPointerUp={handlePointerUp}
+              onPointerLeave={handlePointerUp}
+              onClick={(e) => drawTool === 'text' && handlePointerDown(e as any)}
+              className="absolute inset-0 block w-full h-full"
               style={{
                   pointerEvents: mode === 'crop' ? 'none' : 'auto',
-                  cursor: drawTool === 'eyedropper' ? 'crosshair' : 'crosshair'
+                  cursor: drawTool === 'eyedropper' ? 'crosshair' : 'crosshair',
+                  touchAction: 'none'
               }}
             />
             
@@ -894,7 +1068,14 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ file, onSave, onClose,
             {/* Text Input Overlay */}
             {textInput && (
               <div 
-                style={{ position: 'absolute', left: textInput.x, top: textInput.y, transform: getInputTransform(), zIndex: 20 }}
+                style={{ 
+                    position: 'absolute', 
+                    // Convert Canvas Coords back to Visual Coords
+                    left: textInput.x * scale, 
+                    top: textInput.y * scale, 
+                    transform: getInputTransform(), 
+                    zIndex: 20 
+                }}
                 className="group"
               >
                 {/* Drag Handle - Appears on hover or when focused/active */}
@@ -915,9 +1096,10 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ file, onSave, onClose,
                   onKeyDown={(e) => e.key === 'Enter' && commitText()}
                   className="bg-transparent border-b-2 border-blue-500 outline-none p-0 font-bold"
                   style={{ 
-                      fontSize: `${textSize}px`, 
+                      // Scale font size visually to match canvas rendering
+                      fontSize: `${textSize * scale}px`, 
                       minWidth: '50px', 
-                      width: `${getInputWidth()}px`,
+                      width: `${getInputWidth() * scale}px`,
                       fontFamily: fontFamily.replace(/"/g, ''), 
                       color: strokeColor,
                       textAlign: textAlign as any,
