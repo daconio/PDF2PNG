@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { Layout, Images, FileText, CheckCircle, ArrowRight, Download, Github, FileArchive, X, Eye, Pencil, FileStack, Globe, Cog, Crop, RotateCw, SlidersHorizontal, Files, Layers, Plus, UploadCloud, Scissors, ChevronDown, ChevronUp, Clock, AlertCircle, FileType } from 'lucide-react';
+import { Layout, Images, FileText, CheckCircle, ArrowRight, Download, Github, FileArchive, X, Eye, Pencil, FileStack, Globe, Cog, Crop, RotateCw, SlidersHorizontal, Files, Layers, Plus, UploadCloud, Scissors, ChevronDown, ChevronUp, Clock, AlertCircle, FileType, FolderOutput } from 'lucide-react';
 import { useDropzone, Accept } from 'react-dropzone';
 import { 
   DndContext, 
@@ -79,6 +79,8 @@ const translations = {
     quality: "Compression / Quality",
     qualityDesc: "Lower quality reduces file size (JPG only).",
     format: "Output Format",
+    filename: "Output Filename",
+    filenamePlaceholder: "e.g. MyResult (saved to Downloads)",
     // Modal
     modalTitle: "Select Pages",
     modalDesc: "Enter page numbers or ranges to extract (e.g. 1-3, 5, 8). Each selected page will be saved as a separate file.",
@@ -152,6 +154,8 @@ const translations = {
     quality: "압축 / 품질",
     qualityDesc: "품질을 낮추면 파일 크기가 줄어듭니다 (JPG 전용).",
     format: "출력 형식",
+    filename: "파일 이름 설정",
+    filenamePlaceholder: "예: 결과물 (다운로드 폴더에 저장됨)",
     // Modal
     modalTitle: "페이지 선택",
     modalDesc: "변환할 페이지 번호나 범위를 입력하세요 (예: 1-3, 5, 8). 선택한 페이지는 각각 별도의 파일로 저장됩니다.",
@@ -204,6 +208,7 @@ export default function App() {
   const [activeId, setActiveId] = useState<string | null>(null);
   const [quality, setQuality] = useState(0.9);
   const [outputFormat, setOutputFormat] = useState<OutputFormat>('png');
+  const [outputFilename, setOutputFilename] = useState('');
   
   // Collapsed state for Results panel
   const [isResultsCollapsed, setIsResultsCollapsed] = useState(false);
@@ -249,6 +254,7 @@ export default function App() {
     setPreviewFile(null);
     setEditingFile(null);
     setPendingPdf(null);
+    setOutputFilename('');
     
     // Reset quality logic: Merge defaults to lossless (1.0), others to 0.9
     if (mode === ConversionMode.MERGE_PDF) {
@@ -575,7 +581,11 @@ export default function App() {
       
       const url = URL.createObjectURL(pdfBlob);
       let filename = 'merged-document.pdf';
-      if (generatedFiles.length > 0) {
+      
+      // Use Custom Filename if provided
+      if (outputFilename.trim()) {
+        filename = `${outputFilename.trim()}.pdf`;
+      } else if (generatedFiles.length > 0) {
         const first = generatedFiles[0].name;
         const base = first.replace(/\.[^/.]+$/, "");
         
@@ -625,10 +635,28 @@ export default function App() {
   const handleDownloadZip = async () => {
     if (generatedFiles.length === 0) return;
     const zip = new JSZip();
-    generatedFiles.forEach(file => zip.file(file.name, file.blob));
+    
+    // Check if user provided a custom filename for the batch
+    const hasCustomName = outputFilename.trim().length > 0;
+    
+    generatedFiles.forEach((file, idx) => {
+        let name = file.name;
+        if (hasCustomName) {
+            // Rename internal files to conform to batch name: MyBatch_1.png
+            const ext = file.name.split('.').pop();
+            name = `${outputFilename.trim()}_${idx + 1}.${ext}`;
+        }
+        zip.file(name, file.blob);
+    });
+    
     const zipBlob = await zip.generateAsync({ type: 'blob' });
     const url = URL.createObjectURL(zipBlob);
-    handleDownload(url, `ParsePDF_Output.zip`);
+    
+    const zipName = hasCustomName 
+        ? `${outputFilename.trim()}.zip` 
+        : `ParsePDF_Output.zip`;
+        
+    handleDownload(url, zipName);
   };
 
   const handleSaveEdit = (newBlob: Blob) => {
@@ -1104,6 +1132,23 @@ export default function App() {
                       </div>
                       
                       <div className="grid grid-cols-1 gap-3 mb-6">
+                        {/* Filename Customization Input */}
+                        <div className="mb-2 p-4 bg-gray-50 rounded-lg border-2 border-black/5 animate-in fade-in slide-in-from-top-2 duration-300">
+                             <div className="flex justify-between items-center mb-2">
+                                <div className="flex items-center gap-2">
+                                    <FolderOutput size={14} className="text-gray-500" />
+                                    <label className="text-xs font-bold uppercase text-gray-500">{t('filename')}</label>
+                                </div>
+                             </div>
+                             <input 
+                                type="text"
+                                value={outputFilename}
+                                onChange={(e) => setOutputFilename(e.target.value)}
+                                placeholder={t('filenamePlaceholder')}
+                                className="w-full py-2 px-3 rounded-lg border-2 border-gray-200 text-sm font-bold focus:border-black focus:outline-none transition-colors"
+                             />
+                        </div>
+
                         {/* Format Selection for PDF_TO_PNG */}
                         {mode === ConversionMode.PDF_TO_PNG && (
                           <div className="mb-2 p-4 bg-gray-50 rounded-lg border-2 border-black/5 animate-in fade-in slide-in-from-top-2 duration-300">
