@@ -824,18 +824,42 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ file, onSave, onClose,
   };
 
   const handleAutoDetectFont = () => {
-    const text = textInput?.value || '';
+    // Only work if we are actively editing text
+    if (!textInput) return;
+    
+    const text = textInput.value;
+    if (!text) return; // No text to detect
+
+    // Check for Korean characters
     const hasKorean = /[ㄱ-ㅎ|ㅏ-ㅣ|가-힣]/.test(text);
+    
+    // Define font priorities for each language
     const krCandidates = [
-        '"Pretendard", sans-serif', '"Nanum Myeongjo", serif', '"Nanum Gothic", sans-serif',
+        '"Pretendard", sans-serif', 
+        '"Nanum Gothic", sans-serif', 
+        '"Nanum Myeongjo", serif'
     ];
+    
+    // For non-Korean, prefer the brand font, then system
     const enCandidates = [
-        '"Space Grotesk", sans-serif', '-apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Malgun Gothic", sans-serif', '"Pretendard", sans-serif',
+        '"Space Grotesk", sans-serif', 
+        '"Pretendard", sans-serif',
+        '-apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Malgun Gothic", sans-serif'
     ];
-    const candidates = hasKorean ? krCandidates : enCandidates;
-    const currentIndex = candidates.indexOf(fontFamily);
-    const nextIndex = (currentIndex + 1) % candidates.length;
-    setFontFamily(candidates[nextIndex]);
+
+    const targetList = hasKorean ? krCandidates : enCandidates;
+    
+    // Find if current font is in the target list
+    const currentIdx = targetList.indexOf(fontFamily);
+    
+    if (currentIdx === -1) {
+        // Current font is not suitable for the detected language -> Switch to best match
+        setFontFamily(targetList[0]);
+    } else {
+        // Current font is suitable -> Cycle to next option
+        const nextIdx = (currentIdx + 1) % targetList.length;
+        setFontFamily(targetList[nextIdx]);
+    }
   };
 
   return (
@@ -1000,7 +1024,7 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ file, onSave, onClose,
                         </Tooltip>
                      </div>
                      <div className="w-[1px] h-4 bg-gray-300 mx-1"></div>
-                     <Tooltip content="Smart Match (Cycle Fonts)">
+                     <Tooltip content="Auto Detect Language & Font">
                         <button 
                             onMouseDown={(e) => e.preventDefault()} 
                             onClick={handleAutoDetectFont}
