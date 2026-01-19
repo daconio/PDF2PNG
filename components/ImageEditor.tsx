@@ -51,6 +51,7 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ file, onSave, onClose,
   const tempCanvasRef = useRef<HTMLCanvasElement>(null);  // Interaction Layer (Pen trails, Shapes drag, Crop UI)
   const bufferCanvasRef = useRef<HTMLCanvasElement>(document.createElement('canvas')); // Offscreen Buffer (Pixel Data Only)
   const containerRef = useRef<HTMLDivElement>(null);
+  const cursorOverlayRef = useRef<HTMLDivElement>(null); // For custom brush cursor
   
   // Refs for drawing state
   const isDrawingRef = useRef(false);
@@ -500,8 +501,26 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ file, onSave, onClose,
   };
 
   const handlePointerMove = (e: React.PointerEvent<HTMLCanvasElement>) => {
-    if (!isDrawingRef.current || mode !== 'draw' || !tempCtx) return;
+    // 1. Update Brush Cursor Overlay
     const { x, y } = getCoordinates(e.clientX, e.clientY);
+    const showCursor = mode === 'draw' && (drawTool === 'eraser' || drawTool === 'pen');
+    
+    if (cursorOverlayRef.current && showCursor) {
+        cursorOverlayRef.current.style.display = 'block';
+        cursorOverlayRef.current.style.left = `${x * scale}px`;
+        cursorOverlayRef.current.style.top = `${y * scale}px`;
+        cursorOverlayRef.current.style.width = `${strokeSize * scale}px`;
+        cursorOverlayRef.current.style.height = `${strokeSize * scale}px`;
+        cursorOverlayRef.current.style.borderRadius = '50%';
+        cursorOverlayRef.current.style.backgroundColor = drawTool === 'eraser' ? 'rgba(255,255,255,0.5)' : 'rgba(0,0,0,0.1)';
+        cursorOverlayRef.current.style.borderColor = drawTool === 'eraser' ? '#000' : '#fff';
+    } else if (cursorOverlayRef.current) {
+        cursorOverlayRef.current.style.display = 'none';
+    }
+
+    // 2. Drawing Logic
+    if (!isDrawingRef.current || mode !== 'draw' || !tempCtx) return;
+    
     currentPosRef.current = { x, y };
     if (activeToolParamsRef.current) activeToolParamsRef.current.shiftKey = e.shiftKey;
 
@@ -539,6 +558,34 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ file, onSave, onClose,
       
       renderCanvas(); 
       saveState();    
+    }
+  };
+
+  const handlePointerLeave = () => {
+    // Hide cursor when leaving canvas
+    if (cursorOverlayRef.current) {
+        cursorOverlayRef.current.style.display = 'none';
+    }
+    // Also handle end of drawing if mouse leaves
+    if (isDrawingRef.current) {
+        // We trigger the same cleanup as pointerUp
+        isDrawingRef.current = false;
+        if (rafIdRef.current) {
+            cancelAnimationFrame(rafIdRef.current);
+            rafIdRef.current = null;
+        }
+
+        const bCtx = bufferCanvasRef.current.getContext('2d');
+        if (bCtx && tempCanvasRef.current) {
+            if (['pen', 'eraser'].includes(drawTool)) tempCtx?.closePath();
+            bCtx.drawImage(tempCanvasRef.current, 0, 0);
+            tempCtx?.clearRect(0, 0, tempCanvasRef.current.width, tempCanvasRef.current.height);
+        }
+        startPosRef.current = null;
+        lastPosRef.current = null;
+        activeToolParamsRef.current = null;
+        renderCanvas(); 
+        saveState();   
     }
   };
 
@@ -866,8 +913,30 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ file, onSave, onClose,
             {mode === 'draw' && (
                <div className="flex items-center gap-2 bg-white border border-black px-2 py-1 shadow-sm rounded scale-90 md:scale-100 origin-left">
                  
+                 {/* Eraser / Pen Size Controls */}
                  {drawTool !== 'eyedropper' && (
                      <>
+                        {/* 3-Stage Quick Size Presets for Eraser/Pen */}
+                        {(drawTool === 'eraser' || drawTool === 'pen') && (
+                            <div className="flex mr-2 bg-gray-100 rounded p-0.5 border border-gray-200">
+                                <Tooltip content="Small">
+                                    <button onClick={() => setStrokeSize(10)} className={`p-1 rounded ${strokeSize === 10 ? 'bg-white shadow-sm text-black' : 'text-gray-400 hover:text-black'}`}>
+                                        <CircleIcon size={8} fill={strokeSize === 10 ? "currentColor" : "none"} />
+                                    </button>
+                                </Tooltip>
+                                <Tooltip content="Medium">
+                                    <button onClick={() => setStrokeSize(30)} className={`p-1 rounded ${strokeSize === 30 ? 'bg-white shadow-sm text-black' : 'text-gray-400 hover:text-black'}`}>
+                                        <CircleIcon size={12} fill={strokeSize === 30 ? "currentColor" : "none"} />
+                                    </button>
+                                </Tooltip>
+                                <Tooltip content="Large">
+                                    <button onClick={() => setStrokeSize(60)} className={`p-1 rounded ${strokeSize === 60 ? 'bg-white shadow-sm text-black' : 'text-gray-400 hover:text-black'}`}>
+                                        <CircleIcon size={16} fill={strokeSize === 60 ? "currentColor" : "none"} />
+                                    </button>
+                                </Tooltip>
+                            </div>
+                        )}
+
                         <button onMouseDown={(e) => e.preventDefault()} onClick={() => drawTool === 'text' ? setTextSize(Math.max(10, textSize - 2)) : setStrokeSize(Math.max(1, strokeSize - 1))} className="p-1 hover:bg-gray-100 rounded"><Minus size={14} /></button>
                         <input
                           type="number"
@@ -1030,15 +1099,22 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ file, onSave, onClose,
               onPointerDown={handlePointerDown}
               onPointerMove={handlePointerMove}
               onPointerUp={handlePointerUp}
-              onPointerLeave={handlePointerUp}
+              onPointerLeave={handlePointerLeave}
               onClick={(e) => drawTool === 'text' && handlePointerDown(e as any)}
               className="absolute inset-0 block w-full h-full"
               style={{
                   pointerEvents: mode === 'crop' ? 'none' : 'auto',
-                  cursor: drawTool === 'eyedropper' ? 'crosshair' : 'crosshair',
+                  cursor: (drawTool === 'eraser' || drawTool === 'pen') ? 'none' : drawTool === 'eyedropper' ? 'crosshair' : 'crosshair',
                   touchAction: 'none'
               }}
             />
+
+            {/* Custom Brush/Eraser Cursor Overlay */}
+            <div 
+                ref={cursorOverlayRef}
+                className="absolute pointer-events-none rounded-full border-2 z-50 hidden"
+                style={{ transform: 'translate(-50%, -50%)' }}
+            ></div>
             
             {/* Crop Overlay */}
             {mode === 'crop' && (
