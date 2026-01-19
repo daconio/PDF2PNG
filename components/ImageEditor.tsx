@@ -3,7 +3,7 @@ import {
   X, Save, Undo, Redo, Eraser, Type, Minus, Plus, 
   Crop, RotateCw, SlidersHorizontal, Check, MousePointer2, 
   Pen, Square, Circle as CircleIcon, Slash, ArrowRight,
-  AlignLeft, AlignCenter, AlignRight, Pipette, Triangle, PaintBucket
+  AlignLeft, AlignCenter, AlignRight, Pipette, Triangle, PaintBucket, Move, ScanSearch
 } from 'lucide-react';
 import { Button } from './Button';
 import { Tooltip } from './Tooltip';
@@ -65,6 +65,11 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ file, onSave, onClose,
   const [textInput, setTextInput] = useState<{ x: number; y: number; value: string } | null>(null);
   const textInputRef = useRef<HTMLInputElement>(null);
 
+  // Text Dragging Refs
+  const isDraggingTextRef = useRef(false);
+  const textDragStartRef = useRef<{ x: number; y: number } | null>(null);
+  const textStartPosRef = useRef<{ x: number; y: number } | null>(null);
+
   // Crop State
   const [cropSelection, setCropSelection] = useState<{ x: number, y: number, w: number, h: number } | null>(null);
   const [isSelectingCrop, setIsSelectingCrop] = useState(false);
@@ -115,6 +120,38 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ file, onSave, onClose,
       textInputRef.current.focus();
     }
   }, [textInput]);
+
+  // Handle Text Dragging
+  useEffect(() => {
+    const handleMouseMove = (e: MouseEvent) => {
+      if (isDraggingTextRef.current && textStartPosRef.current && textDragStartRef.current) {
+         e.preventDefault();
+         const dx = e.clientX - textDragStartRef.current.x;
+         const dy = e.clientY - textDragStartRef.current.y;
+         setTextInput(prev => prev ? ({ ...prev, x: textStartPosRef.current!.x + dx, y: textStartPosRef.current!.y + dy }) : null);
+      }
+    };
+
+    const handleMouseUp = () => {
+      isDraggingTextRef.current = false;
+    };
+
+    window.addEventListener('mousemove', handleMouseMove);
+    window.addEventListener('mouseup', handleMouseUp);
+    return () => {
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, []);
+
+  const handleTextMouseDown = (e: React.MouseEvent) => {
+      e.stopPropagation();
+      e.preventDefault();
+      if (!textInput) return;
+      isDraggingTextRef.current = true;
+      textDragStartRef.current = { x: e.clientX, y: e.clientY };
+      textStartPosRef.current = { x: textInput.x, y: textInput.y };
+  };
 
   const saveState = (context: CanvasRenderingContext2D = ctx!) => {
     if (!context || !canvasRef.current) return;
@@ -552,6 +589,43 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ file, onSave, onClose,
     return 'translate(0, -50%)';
   };
 
+  const getInputWidth = () => {
+    if (!ctx) return 50;
+    const text = textInput?.value || '';
+    ctx.save();
+    ctx.font = `bold ${textSize}px ${fontFamily}`;
+    const metrics = ctx.measureText(text);
+    ctx.restore();
+    return Math.max(50, metrics.width + (textSize * 0.5));
+  };
+
+  const handleAutoDetectFont = () => {
+    // 1. Identify context (Korean vs English)
+    const text = textInput?.value || '';
+    const hasKorean = /[ㄱ-ㅎ|ㅏ-ㅣ|가-힣]/.test(text);
+
+    // 2. Define likely candidates based on document standards
+    const krCandidates = [
+        '"Pretendard", sans-serif',      // Modern, common
+        '"Nanum Myeongjo", serif',       // Formal, Serif
+        '"Nanum Gothic", sans-serif',    // Legacy, common
+    ];
+    
+    const enCandidates = [
+        '"Space Grotesk", sans-serif',   // Current App Theme
+        '-apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Malgun Gothic", sans-serif', // System
+        '"Pretendard", sans-serif',      // Also good for EN
+    ];
+
+    const candidates = hasKorean ? krCandidates : enCandidates;
+
+    // 3. Find current index and cycle to next
+    const currentIndex = candidates.indexOf(fontFamily);
+    const nextIndex = (currentIndex + 1) % candidates.length;
+    
+    setFontFamily(candidates[nextIndex]);
+  };
+
   return (
     <div className="flex flex-col w-full h-full bg-white overflow-hidden animate-in fade-in duration-200">
         {/* Header / Toolbar */}
@@ -616,7 +690,20 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ file, onSave, onClose,
                  {drawTool !== 'eyedropper' && (
                      <>
                         <button onMouseDown={(e) => e.preventDefault()} onClick={() => drawTool === 'text' ? setTextSize(Math.max(10, textSize - 2)) : setStrokeSize(Math.max(1, strokeSize - 1))} className="p-1 hover:bg-gray-100 rounded"><Minus size={14} /></button>
-                        <span className="text-xs font-bold w-6 text-center">{drawTool === 'text' ? textSize : strokeSize}</span>
+                        <input
+                          type="number"
+                          min="1"
+                          max="200"
+                          value={drawTool === 'text' ? textSize : strokeSize}
+                          onChange={(e) => {
+                            const val = parseInt(e.target.value);
+                            if (!isNaN(val) && val > 0) {
+                              if (drawTool === 'text') setTextSize(val);
+                              else setStrokeSize(val);
+                            }
+                          }}
+                          className="w-10 text-center text-xs font-bold bg-gray-50 border border-gray-200 rounded py-0.5 focus:border-blue-500 focus:outline-none appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                        />
                         <button onMouseDown={(e) => e.preventDefault()} onClick={() => drawTool === 'text' ? setTextSize(textSize + 2) : setStrokeSize(strokeSize + 1)} className="p-1 hover:bg-gray-100 rounded"><Plus size={14} /></button>
                      </>
                  )}
@@ -667,8 +754,28 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ file, onSave, onClose,
                         </Tooltip>
                      </div>
                      <div className="w-[1px] h-4 bg-gray-300 mx-1"></div>
-                     <select onMouseDown={(e) => e.preventDefault()} value={fontFamily} onChange={(e) => setFontFamily(e.target.value)} className="text-xs border border-gray-300 rounded p-1 max-w-[100px] focus:outline-none focus:border-black cursor-pointer">
-                       {FONT_OPTIONS.map((opt) => <option key={opt.label} value={opt.value}>{opt.label}</option>)}
+                     <Tooltip content="Smart Match (Cycle Fonts)">
+                        <button 
+                            onMouseDown={(e) => e.preventDefault()} 
+                            onClick={handleAutoDetectFont}
+                            className="p-1 hover:bg-gray-100 text-purple-600"
+                        >
+                            <ScanSearch size={16} />
+                        </button>
+                    </Tooltip>
+                     <div className="w-[1px] h-4 bg-gray-300 mx-1"></div>
+                     <select 
+                        onMouseDown={(e) => e.preventDefault()} 
+                        value={fontFamily} 
+                        onChange={(e) => setFontFamily(e.target.value)} 
+                        className="text-xs border border-gray-300 rounded p-1 max-w-[100px] focus:outline-none focus:border-black cursor-pointer"
+                        style={{ fontFamily: fontFamily.replace(/"/g, '') }}
+                     >
+                       {FONT_OPTIONS.map((opt) => (
+                        <option key={opt.label} value={opt.value} style={{ fontFamily: opt.value.replace(/"/g, '') }}>
+                            {opt.label}
+                        </option>
+                       ))}
                      </select>
                    </>
                  )}
@@ -786,7 +893,19 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ file, onSave, onClose,
 
             {/* Text Input Overlay */}
             {textInput && (
-              <div style={{ position: 'absolute', left: textInput.x, top: textInput.y, transform: getInputTransform(), zIndex: 20 }}>
+              <div 
+                style={{ position: 'absolute', left: textInput.x, top: textInput.y, transform: getInputTransform(), zIndex: 20 }}
+                className="group"
+              >
+                {/* Drag Handle - Appears on hover or when focused/active */}
+                <div 
+                    onMouseDown={handleTextMouseDown}
+                    className="absolute -top-8 left-1/2 -translate-x-1/2 bg-black text-white p-1.5 rounded-full cursor-move shadow-neo-sm hover:scale-110 transition-transform z-30"
+                    title="Drag to move text"
+                >
+                    <Move size={14} />
+                </div>
+
                 <input
                   ref={textInputRef}
                   type="text"
@@ -798,10 +917,11 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ file, onSave, onClose,
                   style={{ 
                       fontSize: `${textSize}px`, 
                       minWidth: '50px', 
-                      width: `${Math.max(50, (textInput.value.length + 1) * (textSize * 0.6))}px`,
+                      width: `${getInputWidth()}px`,
                       fontFamily: fontFamily.replace(/"/g, ''), 
                       color: strokeColor,
-                      textAlign: textAlign as any
+                      textAlign: textAlign as any,
+                      whiteSpace: 'nowrap'
                   }}
                   placeholder="Type..."
                 />
