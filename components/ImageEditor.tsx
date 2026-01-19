@@ -39,6 +39,8 @@ interface TextObject {
   size: number;
   fontFamily: string;
   align: CanvasTextAlign;
+  outlineColor?: string;
+  outlineWidth?: number;
 }
 
 interface HistoryItem {
@@ -83,6 +85,8 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ file, onSave, onClose,
   const [textSize, setTextSize] = useState(40);
   const [fontFamily, setFontFamily] = useState(FONT_OPTIONS[0].value);
   const [textAlign, setTextAlign] = useState<CanvasTextAlign>('left');
+  const [textOutlineColor, setTextOutlineColor] = useState('#ffffff');
+  const [textOutlineWidth, setTextOutlineWidth] = useState(0);
   const [textInput, setTextInput] = useState<{ id?: string; x: number; y: number; value: string } | null>(null);
   const textInputRef = useRef<HTMLTextAreaElement>(null);
 
@@ -136,6 +140,7 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ file, onSave, onClose,
 
           // Initial History
           const initialData = bCtx.getImageData(0, 0, img.width, img.height);
+          // Ensure we start with a clean state
           setHistory([{ imageData: initialData, textObjects: [] }]);
           setHistoryStep(0);
       }
@@ -161,12 +166,22 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ file, onSave, onClose,
     context.fillStyle = obj.color;
     context.textAlign = obj.align;
     context.textBaseline = 'alphabetic';
+    context.lineJoin = 'round';
+    context.miterLimit = 2;
     
     const lines = obj.text.split('\n');
     const lineHeight = obj.size * 1.2;
     
     lines.forEach((line, i) => {
-        context.fillText(line, obj.x, obj.y + (i * lineHeight));
+        const yPos = obj.y + (i * lineHeight);
+        // Draw Outline
+        if (obj.outlineWidth && obj.outlineWidth > 0) {
+            context.lineWidth = obj.outlineWidth;
+            context.strokeStyle = obj.outlineColor || '#ffffff';
+            context.strokeText(line, obj.x, yPos);
+        }
+        // Draw Fill
+        context.fillText(line, obj.x, yPos);
     });
     context.restore();
   };
@@ -183,10 +198,11 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ file, onSave, onClose,
       textObjects.forEach(obj => drawText(ctx, obj));
   };
 
-  // Re-render when text objects change
+  // Re-render when text objects or history step changes
+  // Adding historyStep to dependency ensures pixel-only undos (where textObjects might not change) still trigger redraw
   useEffect(() => {
       renderCanvas();
-  }, [textObjects]);
+  }, [textObjects, historyStep, dimensions]);
 
   const fitToScreen = () => {
       if (!containerRef.current || dimensions.width === 0) return;
@@ -251,14 +267,19 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ file, onSave, onClose,
       }
   };
 
+  // --- ROBUST HISTORY SYSTEM ---
   const saveState = () => {
     const bCtx = bufferCanvasRef.current.getContext('2d');
     if (!bCtx) return;
 
     const currentImageData = bCtx.getImageData(0, 0, bufferCanvasRef.current.width, bufferCanvasRef.current.height);
-    const currentTexts = [...textObjects];
+    
+    // DEEP COPY text objects to prevent reference mutations from future edits
+    const currentTexts = JSON.parse(JSON.stringify(textObjects));
 
+    // Remove future history if we are in the middle of the stack
     const newHistory = history.slice(0, historyStep + 1);
+    
     newHistory.push({ imageData: currentImageData, textObjects: currentTexts });
     
     if (newHistory.length > 20) newHistory.shift();
@@ -269,25 +290,43 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ file, onSave, onClose,
 
   const restoreState = (index: number) => {
       if (index < 0 || index >= history.length) return;
-      const item = history[index];
       
+      // Force clean up of any active states to prevent UI glitches
+      setTextInput(null);
+      setIsSelectingCrop(false);
+      setCropSelection(null);
+
+      const item = history[index];
       const bCtx = bufferCanvasRef.current.getContext('2d');
+      
       if (!bCtx || !canvasRef.current || !tempCanvasRef.current) return;
 
-      if (canvasRef.current.width !== item.imageData.width || canvasRef.current.height !== item.imageData.height) {
-          canvasRef.current.width = item.imageData.width;
-          canvasRef.current.height = item.imageData.height;
-          tempCanvasRef.current.width = item.imageData.width;
-          tempCanvasRef.current.height = item.imageData.height;
-          bufferCanvasRef.current.width = item.imageData.width;
-          bufferCanvasRef.current.height = item.imageData.height;
+      // Check for dimension changes (e.g. undoing a Crop or Rotate)
+      const dimsChanged = canvasRef.current.width !== item.imageData.width || canvasRef.current.height !== item.imageData.height;
+
+      if (dimsChanged) {
+          // Resize all canvases
+          [canvasRef.current, tempCanvasRef.current, bufferCanvasRef.current].forEach(c => {
+              if (c) {
+                  c.width = item.imageData.width;
+                  c.height = item.imageData.height;
+              }
+          });
           setDimensions({ width: item.imageData.width, height: item.imageData.height });
+          // Force update metrics for hit testing
+          setTimeout(updateCanvasMetrics, 0);
       }
 
+      // Restore Pixels
       bCtx.putImageData(item.imageData, 0, 0);
-      setTextObjects(item.textObjects);
+      
+      // Restore Vectors (Deep copy back to state to ensure React detects change)
+      setTextObjects(JSON.parse(JSON.stringify(item.textObjects)));
+      
       setHistoryStep(index);
-      setTimeout(renderCanvas, 0);
+      
+      // Trigger render
+      requestAnimationFrame(renderCanvas);
   };
 
   const handleUndo = () => { if (historyStep > 0) restoreState(historyStep - 1); };
@@ -295,7 +334,9 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ file, onSave, onClose,
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      // Ignore if typing in text box
       if ((e.target as HTMLElement).tagName === 'INPUT' || (e.target as HTMLElement).tagName === 'TEXTAREA') return;
+      
       const isCtrlOrCmd = e.ctrlKey || e.metaKey;
       if (isCtrlOrCmd && e.key.toLowerCase() === 'z') {
         e.preventDefault();
@@ -307,7 +348,7 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ file, onSave, onClose,
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [historyStep, history]);
+  }, [historyStep, history]); // Dependencies needed for closure to capture current history
 
   const updateCanvasMetrics = () => {
     if (!tempCanvasRef.current) return;
@@ -464,6 +505,8 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ file, onSave, onClose,
             setTextSize(hit.size);
             setFontFamily(hit.fontFamily);
             setTextAlign(hit.align);
+            setTextOutlineWidth(hit.outlineWidth || 0);
+            setTextOutlineColor(hit.outlineColor || '#ffffff');
         } else {
             setTextInput({ x, y, value: '' });
         }
@@ -610,7 +653,9 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ file, onSave, onClose,
         color: strokeColor,
         size: textSize,
         fontFamily: fontFamily,
-        align: textAlign
+        align: textAlign,
+        outlineColor: textOutlineColor,
+        outlineWidth: textOutlineWidth
     };
 
     setTextObjects(prev => [...prev, newTextObj]);
@@ -790,36 +835,82 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ file, onSave, onClose,
      const lines = text.split('\n');
      ctx.save();
      ctx.font = `bold ${textSize}px ${fontFamily}`;
-     let maxWidth = 0;
+     
+     let maxLineWidth = 0;
      lines.forEach(line => {
          const m = ctx.measureText(line);
-         if (m.width > maxWidth) maxWidth = m.width;
+         // Add explicit buffer for trailing spaces which measureText ignores visually
+         const trailingSpaces = line.match(/\s+$/);
+         let w = m.width;
+         if (trailingSpaces) {
+             w += (ctx.measureText(' ').width * trailingSpaces[0].length);
+         }
+         if (w > maxLineWidth) maxLineWidth = w;
      });
      ctx.restore();
      
      const lineHeight = textSize * 1.2;
-     // Increased buffer for typing comfort and to prevent clipping
-     // Use a larger multiplier for textSize to account for wide chars and cursor
-     const calcWidth = Math.max(100, maxWidth + (textSize * 3)); 
-     // Ensure height covers descenders (g, j, q, etc) and multiple lines
-     const calcHeight = Math.max(lineHeight, lines.length * lineHeight * 1.15);
+     
+     // Calculate pixel dimensions needed for content
+     // We add a 'caret buffer' (approx 1 char width or fixed px) to prevent scrolling when typing at end
+     const caretBuffer = textSize * 0.6; 
+     const contentWidth = maxLineWidth + caretBuffer + ((textOutlineWidth || 0) * 2);
+     const contentHeight = lines.length * lineHeight;
 
-     let left = (textInput?.x || 0) * scale;
-     if (textAlign === 'center') left -= (calcWidth * scale) / 2;
-     if (textAlign === 'right') left -= (calcWidth * scale);
+     // Container has p-1, which is 0.25rem ~ 4px.
+     // We need to size the OUTER box to contain: Content + Padding
+     const paddingPx = 4;
+     const totalPaddingH = paddingPx * 2;
+     const totalPaddingV = paddingPx * 2;
+
+     // Apply scale
+     // The width/height styles are in screen pixels.
+     const finalWidth = (contentWidth * scale) + totalPaddingH;
+     const finalHeight = (contentHeight * scale) + totalPaddingV;
+
+     // Min width to ensure it's clickable/visible when empty
+     const minWidth = (textSize * scale) + totalPaddingH;
+     
+     const boxWidth = Math.max(minWidth, finalWidth);
+     const boxHeight = Math.max(finalHeight, (lineHeight * scale) + totalPaddingV);
+
+     // Alignment adjustments for "left" position
+     // We want the text content to anchor at (textInput.x * scale, textInput.y * scale)
+     // Text starts at: BoxLeft + Padding
+     
+     let boxLeft = (textInput?.x || 0) * scale;
+     
+     if (textAlign === 'center') {
+         // TextCenter = BoxLeft + BoxWidth/2 -> BoxLeft = TextCenter - BoxWidth/2
+         boxLeft -= boxWidth / 2;
+     } else if (textAlign === 'right') {
+         // TextRight = BoxLeft + BoxWidth - Padding -> BoxLeft = TextRight - BoxWidth + Padding
+         boxLeft = boxLeft - boxWidth + paddingPx;
+     } else {
+         // Left align -> TextLeft = BoxLeft + Padding -> BoxLeft = TextLeft - Padding
+         boxLeft -= paddingPx;
+     }
+
+     // Top adjustment
+     // TextBaseline approx at Top + Padding + Ascent
+     // We want Baseline at textInput.y
+     // So Top = y - Ascent - Padding
+     // Ascent approx 0.92 * textSize
+     const top = ((textInput?.y || 0) * scale) - (textSize * 0.92 * scale) - paddingPx;
 
      return {
-         left: `${left}px`,
-         // Y position relative to baseline. Input top is roughly baseline - ascent. 
-         // We approximate ascent as 0.8 * size.
-         top: `${(textInput?.y || 0) * scale - (textSize * 0.8 * scale)}px`,
-         width: `${calcWidth * scale}px`,
-         height: `${calcHeight * scale}px`,
+         left: `${boxLeft}px`,
+         top: `${top}px`,
+         width: `${boxWidth}px`,
+         height: `${boxHeight}px`,
          fontSize: `${textSize * scale}px`,
          lineHeight: `${lineHeight * scale}px`,
          fontFamily: fontFamily.replace(/"/g, ''),
          color: strokeColor,
          textAlign: textAlign,
+         WebkitTextStroke: textOutlineWidth > 0 ? `${textOutlineWidth * scale}px ${textOutlineColor}` : 'none',
+         overflow: 'hidden',
+         whiteSpace: 'pre',
      };
   };
 
@@ -1047,6 +1138,28 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ file, onSave, onClose,
                         </option>
                        ))}
                      </select>
+                     
+                     {/* Outline Controls */}
+                     <div className="w-[1px] h-4 bg-gray-300 mx-1"></div>
+                     <div className="flex items-center gap-1">
+                        <label className="text-[9px] font-bold text-gray-500 uppercase">Outline</label>
+                        <input 
+                            type="number" 
+                            min="0" 
+                            max="20" 
+                            value={textOutlineWidth} 
+                            onChange={(e) => setTextOutlineWidth(Number(e.target.value))}
+                            className="w-8 text-center text-xs font-bold bg-gray-50 border border-gray-200 rounded py-0.5 focus:border-blue-500 focus:outline-none appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                        />
+                        {textOutlineWidth > 0 && (
+                            <input 
+                                type="color" 
+                                value={textOutlineColor} 
+                                onChange={(e) => setTextOutlineColor(e.target.value)} 
+                                className="w-5 h-5 border-0 p-0 rounded cursor-pointer" 
+                            />
+                        )}
+                     </div>
                    </>
                  )}
                  
