@@ -83,7 +83,7 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ file, onSave, onClose,
   const [fontFamily, setFontFamily] = useState(FONT_OPTIONS[0].value);
   const [textAlign, setTextAlign] = useState<CanvasTextAlign>('left');
   const [textInput, setTextInput] = useState<{ id?: string; x: number; y: number; value: string } | null>(null);
-  const textInputRef = useRef<HTMLInputElement>(null);
+  const textInputRef = useRef<HTMLTextAreaElement>(null);
 
   // Dragging Text Input
   const isDraggingTextRef = useRef(false);
@@ -153,6 +153,23 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ file, onSave, onClose,
     };
   }, [file.url]);
 
+  // Helper to draw multiline text
+  const drawText = (context: CanvasRenderingContext2D, obj: TextObject) => {
+    context.save();
+    context.font = `bold ${obj.size}px ${obj.fontFamily}`;
+    context.fillStyle = obj.color;
+    context.textAlign = obj.align;
+    context.textBaseline = 'alphabetic';
+    
+    const lines = obj.text.split('\n');
+    const lineHeight = obj.size * 1.2;
+    
+    lines.forEach((line, i) => {
+        context.fillText(line, obj.x, obj.y + (i * lineHeight));
+    });
+    context.restore();
+  };
+
   // Main Render Function: Combines Pixel Buffer + Vector Text Objects
   const renderCanvas = () => {
       if (!ctx || !canvasRef.current) return;
@@ -162,15 +179,7 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ file, onSave, onClose,
       ctx.drawImage(bufferCanvasRef.current, 0, 0);
 
       // 2. Draw Text Objects (Vectors)
-      textObjects.forEach(obj => {
-          ctx.save();
-          ctx.font = `bold ${obj.size}px ${obj.fontFamily}`;
-          ctx.fillStyle = obj.color;
-          ctx.textAlign = obj.align;
-          ctx.textBaseline = 'alphabetic'; // Standardize baseline
-          ctx.fillText(obj.text, obj.x, obj.y);
-          ctx.restore();
-      });
+      textObjects.forEach(obj => drawText(ctx, obj));
   };
 
   // Re-render when text objects change
@@ -190,46 +199,61 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ file, onSave, onClose,
 
   useEffect(() => {
     if (textInput && textInputRef.current) {
-      textInputRef.current.focus();
+      // Focus with a small delay to ensure DOM is ready and event loop is clear
+      setTimeout(() => {
+        if(textInputRef.current) {
+            textInputRef.current.focus();
+            // Move cursor to end
+            textInputRef.current.setSelectionRange(textInputRef.current.value.length, textInputRef.current.value.length);
+        }
+      }, 10);
     }
   }, [textInput]);
 
-  // Text Dragging
-  useEffect(() => {
-    const handleMouseMove = (e: MouseEvent) => {
-      if (isDraggingTextRef.current && textStartPosRef.current && textDragStartRef.current) {
-         e.preventDefault();
-         const dxVisual = e.clientX - textDragStartRef.current.x;
-         const dyVisual = e.clientY - textDragStartRef.current.y;
-         const dxCanvas = dxVisual / scale;
-         const dyCanvas = dyVisual / scale;
-
-         setTextInput(prev => prev ? ({ ...prev, x: textStartPosRef.current!.x + dxCanvas, y: textStartPosRef.current!.y + dyCanvas }) : null);
-      }
-    };
-    const handleMouseUp = () => { isDraggingTextRef.current = false; };
-    window.addEventListener('mousemove', handleMouseMove);
-    window.addEventListener('mouseup', handleMouseUp);
-    return () => {
-      window.removeEventListener('mousemove', handleMouseMove);
-      window.removeEventListener('mouseup', handleMouseUp);
-    };
-  }, [scale]);
-
-  const handleTextMouseDown = (e: React.MouseEvent) => {
+  // --- TEXT DRAGGING LOGIC ---
+  const handleTextDragStart = (e: React.PointerEvent) => {
       e.stopPropagation();
-      e.preventDefault();
+      e.preventDefault(); 
       if (!textInput) return;
+      
+      e.currentTarget.setPointerCapture(e.pointerId);
       isDraggingTextRef.current = true;
       textDragStartRef.current = { x: e.clientX, y: e.clientY };
       textStartPosRef.current = { x: textInput.x, y: textInput.y };
+  };
+
+  const handleTextDragMove = (e: React.PointerEvent) => {
+      if (!isDraggingTextRef.current || !textDragStartRef.current || !textStartPosRef.current) return;
+      e.stopPropagation();
+      e.preventDefault();
+      
+      const dxVisual = e.clientX - textDragStartRef.current.x;
+      const dyVisual = e.clientY - textDragStartRef.current.y;
+      
+      const dxCanvas = dxVisual / scale;
+      const dyCanvas = dyVisual / scale;
+      
+      setTextInput(prev => prev ? ({ 
+          ...prev, 
+          x: textStartPosRef.current!.x + dxCanvas, 
+          y: textStartPosRef.current!.y + dyCanvas 
+      }) : null);
+  };
+
+  const handleTextDragEnd = (e: React.PointerEvent) => {
+      e.stopPropagation();
+      e.preventDefault();
+      isDraggingTextRef.current = false;
+      e.currentTarget.releasePointerCapture(e.pointerId);
+      if (textInputRef.current) {
+          textInputRef.current.focus();
+      }
   };
 
   const saveState = () => {
     const bCtx = bufferCanvasRef.current.getContext('2d');
     if (!bCtx) return;
 
-    // Save Buffer pixels AND current text objects
     const currentImageData = bCtx.getImageData(0, 0, bufferCanvasRef.current.width, bufferCanvasRef.current.height);
     const currentTexts = [...textObjects];
 
@@ -249,7 +273,6 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ file, onSave, onClose,
       const bCtx = bufferCanvasRef.current.getContext('2d');
       if (!bCtx || !canvasRef.current || !tempCanvasRef.current) return;
 
-      // Restore Canvas Size if changed
       if (canvasRef.current.width !== item.imageData.width || canvasRef.current.height !== item.imageData.height) {
           canvasRef.current.width = item.imageData.width;
           canvasRef.current.height = item.imageData.height;
@@ -260,25 +283,18 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ file, onSave, onClose,
           setDimensions({ width: item.imageData.width, height: item.imageData.height });
       }
 
-      // Restore Pixels to Buffer
       bCtx.putImageData(item.imageData, 0, 0);
-      
-      // Restore Texts
       setTextObjects(item.textObjects);
-      
       setHistoryStep(index);
-      
-      // Trigger render
       setTimeout(renderCanvas, 0);
   };
 
   const handleUndo = () => { if (historyStep > 0) restoreState(historyStep - 1); };
   const handleRedo = () => { if (historyStep < history.length - 1) restoreState(historyStep + 1); };
 
-  // Keyboard Shortcuts
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if ((e.target as HTMLElement).tagName === 'INPUT') return;
+      if ((e.target as HTMLElement).tagName === 'INPUT' || (e.target as HTMLElement).tagName === 'TEXTAREA') return;
       const isCtrlOrCmd = e.ctrlKey || e.metaKey;
       if (isCtrlOrCmd && e.key.toLowerCase() === 'z') {
         e.preventDefault();
@@ -313,26 +329,33 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ file, onSave, onClose,
   // Check if click hits a text object
   const hitTestText = (x: number, y: number): TextObject | null => {
       if (!ctx) return null;
-      // Reverse iterate to pick top-most
       for (let i = textObjects.length - 1; i >= 0; i--) {
           const obj = textObjects[i];
+          const lines = obj.text.split('\n');
+          const lineHeight = obj.size * 1.2;
+
           ctx.save();
           ctx.font = `bold ${obj.size}px ${obj.fontFamily}`;
-          const metrics = ctx.measureText(obj.text);
-          const height = obj.size; // Approximate height
           
-          let startX = obj.x;
-          if (obj.align === 'center') startX = obj.x - metrics.width / 2;
-          if (obj.align === 'right') startX = obj.x - metrics.width;
-
-          // Bounding box (simple approximation)
-          // Y is baseline, so box is from y - height to y + descent (approx size * 0.2)
-          const top = obj.y - height * 0.8;
-          const bottom = obj.y + height * 0.2;
+          let maxWidth = 0;
+          lines.forEach(line => {
+              const metrics = ctx.measureText(line);
+              if (metrics.width > maxWidth) maxWidth = metrics.width;
+          });
+          
+          const top = obj.y - obj.size * 0.8;
+          const bottom = obj.y + ((lines.length - 1) * lineHeight) + (obj.size * 0.3);
+          
+          let left = obj.x;
+          if (obj.align === 'center') left = obj.x - maxWidth / 2;
+          if (obj.align === 'right') left = obj.x - maxWidth;
+          
+          const right = left + maxWidth;
           
           ctx.restore();
 
-          if (x >= startX && x <= startX + metrics.width && y >= top && y <= bottom) {
+          const padding = 10;
+          if (x >= left - padding && x <= right + padding && y >= top - padding && y <= bottom + padding) {
               return obj;
           }
       }
@@ -430,22 +453,17 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ file, onSave, onClose,
 
     // Text Tool: Hit Detection or New Text
     if (drawTool === 'text') {
-        // If we are already editing, commit first
         if (textInput) commitText();
 
         const hit = hitTestText(x, y);
         if (hit) {
-            // Edit existing text
             setTextInput({ id: hit.id, x: hit.x, y: hit.y, value: hit.text });
-            // Remove from objects temporarily (so it doesn't double render)
             setTextObjects(prev => prev.filter(t => t.id !== hit.id));
-            // Set styles to match
             setStrokeColor(hit.color);
             setTextSize(hit.size);
             setFontFamily(hit.fontFamily);
             setTextAlign(hit.align);
         } else {
-            // New text
             setTextInput({ x, y, value: '' });
         }
         return;
@@ -457,7 +475,6 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ file, onSave, onClose,
     lastPosRef.current = { x, y };
     currentPosRef.current = { x, y };
 
-    // Setup Temp Context (for interaction)
     tempCtx.lineCap = 'round';
     tempCtx.lineJoin = 'round';
     tempCtx.lineWidth = strokeSize;
@@ -509,7 +526,6 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ file, onSave, onClose,
           rafIdRef.current = null;
       }
 
-      // Commit Temp Canvas (Pen/Shapes) to Buffer (Pixel Layer)
       const bCtx = bufferCanvasRef.current.getContext('2d');
       if (bCtx && tempCanvasRef.current) {
          if (['pen', 'eraser'].includes(drawTool)) tempCtx?.closePath();
@@ -521,12 +537,13 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ file, onSave, onClose,
       lastPosRef.current = null;
       activeToolParamsRef.current = null;
       
-      renderCanvas(); // Update Screen
-      saveState();    // Save History
+      renderCanvas(); 
+      saveState();    
     }
   };
 
   const commitText = () => {
+    if (isDraggingTextRef.current) return;
     if (!textInput || !ctx || !canvasRef.current) {
       setTextInput(null);
       return;
@@ -534,7 +551,7 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ file, onSave, onClose,
 
     if (!textInput.value.trim()) {
         setTextInput(null);
-        renderCanvas(); // Just re-render to ensure clean state
+        renderCanvas();
         return;
     }
 
@@ -551,39 +568,23 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ file, onSave, onClose,
 
     setTextObjects(prev => [...prev, newTextObj]);
     setTextInput(null);
-    // saveState will be called in useEffect or we call it manually
-    // Since setTextObjects is async, we can't save immediately unless we use updated list.
-    // Let's use a timeout or manual composition for saveState. 
-    // Easier: update state, let render happen, then save.
     setTimeout(() => saveState(), 0);
   };
 
   // --- BAKE TEXTS FUNCTION ---
-  // Merges texts into buffer pixels. Used for transformations (Crop/Rotate/Adjust)
   const bakeTextsToBuffer = () => {
       const bCtx = bufferCanvasRef.current.getContext('2d');
       if (!bCtx) return;
-      
-      textObjects.forEach(obj => {
-          bCtx.save();
-          bCtx.font = `bold ${obj.size}px ${obj.fontFamily}`;
-          bCtx.fillStyle = obj.color;
-          bCtx.textAlign = obj.align;
-          bCtx.textBaseline = 'alphabetic';
-          bCtx.fillText(obj.text, obj.x, obj.y);
-          bCtx.restore();
-      });
-      setTextObjects([]); // Clear vectors as they are now pixels
+      textObjects.forEach(obj => drawText(bCtx, obj));
+      setTextObjects([]); 
   };
 
   // --- ROTATE LOGIC ---
   const handleRotate = () => {
-    bakeTextsToBuffer(); // Flatten text before rotation
-
+    bakeTextsToBuffer(); 
     const bCtx = bufferCanvasRef.current.getContext('2d');
     if (!bCtx) return;
 
-    // Create temp buffer for rotation
     const tempCanvas = document.createElement('canvas');
     tempCanvas.width = bufferCanvasRef.current.height;
     tempCanvas.height = bufferCanvasRef.current.width;
@@ -594,12 +595,10 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ file, onSave, onClose,
     tCtx.rotate((90 * Math.PI) / 180);
     tCtx.drawImage(bufferCanvasRef.current, -bufferCanvasRef.current.width / 2, -bufferCanvasRef.current.height / 2);
 
-    // Update Buffer
     bufferCanvasRef.current.width = tempCanvas.width;
     bufferCanvasRef.current.height = tempCanvas.height;
     bCtx.drawImage(tempCanvas, 0, 0);
 
-    // Update Display canvases
     if (canvasRef.current && tempCanvasRef.current) {
         canvasRef.current.width = tempCanvas.width;
         canvasRef.current.height = tempCanvas.height;
@@ -645,7 +644,7 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ file, onSave, onClose,
   const applyCrop = () => {
     if (!cropSelection || !ctx || !canvasRef.current || cropSelection.w < 5 || cropSelection.h < 5) return;
     
-    bakeTextsToBuffer(); // Flatten text before crop
+    bakeTextsToBuffer();
 
     const rect = canvasRef.current.getBoundingClientRect();
     const scaleX = canvasRef.current.width / rect.width;
@@ -662,13 +661,11 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ file, onSave, onClose,
         
         const croppedData = bCtx.getImageData(sourceX, sourceY, sourceW, sourceH);
         
-        // Update all canvases
         [canvasRef.current, tempCanvasRef.current, bufferCanvasRef.current].forEach(c => {
             if(c) { c.width = sourceW; c.height = sourceH; }
         });
 
         bCtx.putImageData(croppedData, 0, 0);
-        
         setDimensions({ width: sourceW, height: sourceH });
 
         renderCanvas();
@@ -683,7 +680,6 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ file, onSave, onClose,
 
   // --- ADJUSTMENT LOGIC ---
   const applyAdjustments = () => {
-    // Bake adjustments into buffer
     bakeTextsToBuffer();
 
     const bCtx = bufferCanvasRef.current.getContext('2d');
@@ -713,17 +709,14 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ file, onSave, onClose,
   const handleSave = () => {
     if (!bufferCanvasRef.current) return;
     
-    // Create export canvas that combines everything
     const exportCanvas = document.createElement('canvas');
     exportCanvas.width = bufferCanvasRef.current.width;
     exportCanvas.height = bufferCanvasRef.current.height;
     const eCtx = exportCanvas.getContext('2d');
     if (!eCtx) return;
 
-    // 1. Draw Buffer
     eCtx.drawImage(bufferCanvasRef.current, 0, 0);
     
-    // 2. Apply Filters if in adjust mode and not applied
     if (mode === 'adjust' && (brightness !== 100 || contrast !== 100)) {
        const temp = document.createElement('canvas');
        temp.width = exportCanvas.width;
@@ -737,36 +730,50 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ file, onSave, onClose,
        eCtx.restore();
     }
 
-    // 3. Draw Text Objects
-    textObjects.forEach(obj => {
-        eCtx.save();
-        eCtx.font = `bold ${obj.size}px ${obj.fontFamily}`;
-        eCtx.fillStyle = obj.color;
-        eCtx.textAlign = obj.align;
-        eCtx.textBaseline = 'alphabetic';
-        eCtx.fillText(obj.text, obj.x, obj.y);
-        eCtx.restore();
-    });
+    textObjects.forEach(obj => drawText(eCtx, obj));
 
     exportCanvas.toBlob((blob) => {
       if (blob) onSave(blob);
     }, 'image/png');
   };
 
-  const getInputTransform = () => {
-    if (textAlign === 'center') return 'translate(-50%, -80%)'; // Adjusted for baseline
-    if (textAlign === 'right') return 'translate(-100%, -80%)';
-    return 'translate(0, -80%)';
-  };
+  const getTextAreaStyle = () => {
+     if (!ctx) return {};
+     const text = textInput?.value || '';
+     const lines = text.split('\n');
+     ctx.save();
+     ctx.font = `bold ${textSize}px ${fontFamily}`;
+     let maxWidth = 0;
+     lines.forEach(line => {
+         const m = ctx.measureText(line);
+         if (m.width > maxWidth) maxWidth = m.width;
+     });
+     ctx.restore();
+     
+     const lineHeight = textSize * 1.2;
+     // Increased buffer for typing comfort and to prevent clipping
+     // Use a larger multiplier for textSize to account for wide chars and cursor
+     const calcWidth = Math.max(100, maxWidth + (textSize * 3)); 
+     // Ensure height covers descenders (g, j, q, etc) and multiple lines
+     const calcHeight = Math.max(lineHeight, lines.length * lineHeight * 1.15);
 
-  const getInputWidth = () => {
-    if (!ctx) return 50;
-    const text = textInput?.value || '';
-    ctx.save();
-    ctx.font = `bold ${textSize}px ${fontFamily}`;
-    const metrics = ctx.measureText(text);
-    ctx.restore();
-    return Math.max(50, metrics.width + (textSize * 0.5));
+     let left = (textInput?.x || 0) * scale;
+     if (textAlign === 'center') left -= (calcWidth * scale) / 2;
+     if (textAlign === 'right') left -= (calcWidth * scale);
+
+     return {
+         left: `${left}px`,
+         // Y position relative to baseline. Input top is roughly baseline - ascent. 
+         // We approximate ascent as 0.8 * size.
+         top: `${(textInput?.y || 0) * scale - (textSize * 0.8 * scale)}px`,
+         width: `${calcWidth * scale}px`,
+         height: `${calcHeight * scale}px`,
+         fontSize: `${textSize * scale}px`,
+         lineHeight: `${lineHeight * scale}px`,
+         fontFamily: fontFamily.replace(/"/g, ''),
+         color: strokeColor,
+         textAlign: textAlign,
+     };
   };
 
   const handleAutoDetectFont = () => {
@@ -840,7 +847,7 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ file, onSave, onClose,
               </Tooltip>
             </div>
             
-            {/* Zoom Controls - New Group */}
+            {/* Zoom Controls */}
             <div className="flex items-center gap-1 bg-white border border-black px-2 py-1 shadow-sm rounded scale-90 md:scale-100 origin-left">
                 <Tooltip content="Zoom Out">
                     <button onClick={() => setScale(s => Math.max(0.1, s - 0.1))} className="p-1 hover:bg-gray-100 rounded"><ZoomOut size={16} /></button>
@@ -859,7 +866,6 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ file, onSave, onClose,
             {mode === 'draw' && (
                <div className="flex items-center gap-2 bg-white border border-black px-2 py-1 shadow-sm rounded scale-90 md:scale-100 origin-left">
                  
-                 {/* Stroke Size for all drawing tools */}
                  {drawTool !== 'eyedropper' && (
                      <>
                         <button onMouseDown={(e) => e.preventDefault()} onClick={() => drawTool === 'text' ? setTextSize(Math.max(10, textSize - 2)) : setStrokeSize(Math.max(1, strokeSize - 1))} className="p-1 hover:bg-gray-100 rounded"><Minus size={14} /></button>
@@ -888,7 +894,6 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ file, onSave, onClose,
                     </>
                  )}
 
-                 {/* Shape Fill Toggle */}
                  {['rect', 'circle', 'triangle'].includes(drawTool) && (
                      <>
                         <div className="w-[1px] h-4 bg-gray-300 mx-1"></div>
@@ -900,7 +905,6 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ file, onSave, onClose,
                      </>
                  )}
 
-                 {/* Opacity for Pen and Shapes */}
                  {drawTool !== 'eraser' && drawTool !== 'text' && drawTool !== 'eyedropper' && (
                     <>
                         <div className="w-[1px] h-4 bg-gray-300 mx-1"></div>
@@ -953,7 +957,6 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ file, onSave, onClose,
                    </>
                  )}
                  
-                 {/* Eyedropper Message */}
                  {drawTool === 'eyedropper' && (
                      <span className="text-xs font-medium text-gray-500 px-2">Click image to pick color</span>
                  )}
@@ -1070,43 +1073,46 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ file, onSave, onClose,
               <div 
                 style={{ 
                     position: 'absolute', 
-                    // Convert Canvas Coords back to Visual Coords
-                    left: textInput.x * scale, 
-                    top: textInput.y * scale, 
-                    transform: getInputTransform(), 
+                    // Use calculated styles for precise positioning and sizing
+                    ...getTextAreaStyle(),
                     zIndex: 20 
                 }}
                 className="group"
+                // Prevent mouse down from reaching canvas (which would blur/commit)
+                onPointerDown={(e) => e.stopPropagation()}
               >
-                {/* Drag Handle - Appears on hover or when focused/active */}
-                <div 
-                    onMouseDown={handleTextMouseDown}
-                    className="absolute -top-8 left-1/2 -translate-x-1/2 bg-black text-white p-1.5 rounded-full cursor-move shadow-neo-sm hover:scale-110 transition-transform z-30"
-                    title="Drag to move text"
-                >
-                    <Move size={14} />
-                </div>
+                {/* Text Editing Box Wrapper */}
+                <div className="relative border-2 border-dashed border-blue-400 hover:border-blue-600 rounded p-1 transition-colors w-full h-full">
+                    
+                    {/* Drag Handle */}
+                    <div 
+                        onPointerDown={handleTextDragStart}
+                        onPointerMove={handleTextDragMove}
+                        onPointerUp={handleTextDragEnd}
+                        className="absolute -top-7 left-1/2 -translate-x-1/2 bg-blue-500 text-white p-1.5 rounded-md cursor-move shadow-sm hover:scale-105 active:scale-95 transition-all flex items-center justify-center z-30"
+                        title="Drag to move text"
+                    >
+                        <Move size={14} />
+                    </div>
 
-                <input
-                  ref={textInputRef}
-                  type="text"
-                  value={textInput.value}
-                  onChange={(e) => setTextInput({ ...textInput, value: e.target.value })}
-                  onBlur={commitText}
-                  onKeyDown={(e) => e.key === 'Enter' && commitText()}
-                  className="bg-transparent border-b-2 border-blue-500 outline-none p-0 font-bold"
-                  style={{ 
-                      // Scale font size visually to match canvas rendering
-                      fontSize: `${textSize * scale}px`, 
-                      minWidth: '50px', 
-                      width: `${getInputWidth() * scale}px`,
-                      fontFamily: fontFamily.replace(/"/g, ''), 
-                      color: strokeColor,
-                      textAlign: textAlign as any,
-                      whiteSpace: 'nowrap'
-                  }}
-                  placeholder="Type..."
-                />
+                    <textarea
+                      ref={textInputRef}
+                      value={textInput.value}
+                      onChange={(e) => setTextInput(prev => prev ? ({ ...prev, value: e.target.value }) : null)}
+                      onBlur={commitText}
+                      // Use pre-wrap to match canvas drawing behavior more closely (canvas manual newlines)
+                      // Use block to fill space
+                      className="bg-transparent border-none outline-none p-0 font-bold block w-full h-full resize-none whitespace-pre overflow-hidden leading-normal"
+                      style={{ 
+                          fontSize: 'inherit',
+                          fontFamily: 'inherit', 
+                          color: 'inherit',
+                          textAlign: 'inherit',
+                          lineHeight: 'inherit',
+                      }}
+                      placeholder="Type..."
+                    />
+                </div>
               </div>
             )}
           </div>
