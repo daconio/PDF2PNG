@@ -224,14 +224,25 @@ export default function App() {
   // Helper to determine layout state
   const isPreviewMode = !!previewFile || !!editingFile;
 
-  // Auto-collapse results when entering preview mode
+  // Track previous counts to detect additions
+  const prevFileCount = useRef(0);
+  const prevQueueCount = useRef(0);
+
+  // Effect: Restore expanded state when exiting preview mode
   useEffect(() => {
-    if (isPreviewMode) {
-      setIsResultsCollapsed(true);
-    } else {
+    if (!isPreviewMode) {
       setIsResultsCollapsed(false);
     }
   }, [isPreviewMode]);
+
+  // Effect: Expand results panel when items are added to queue or generated files
+  useEffect(() => {
+    if (generatedFiles.length > prevFileCount.current || queue.length > prevQueueCount.current) {
+        setIsResultsCollapsed(false);
+    }
+    prevFileCount.current = generatedFiles.length;
+    prevQueueCount.current = queue.length;
+  }, [generatedFiles.length, queue.length]);
 
   // Dnd Sensors
   const sensors = useSensors(
