@@ -1247,13 +1247,6 @@ export default function App() {
                                   onPreview={() => { setPreviewFile(file); setEditingFile(null); }}
                                   onDelete={() => handleDelete(file.id)}
                                   onDownload={() => handleDownload(file.url, file.name)}
-                                  onEdit={() => {
-                                      if (isImage(file)) {
-                                          setPreviewFile(file);
-                                          setEditingFile(file);
-                                          setEditorInitialMode('draw');
-                                      }
-                                  }}
                                   translations={{
                                     delete: t('ttDelete'),
                                     download: t('ttDownload')

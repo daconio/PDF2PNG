@@ -16,7 +16,6 @@ interface SortableFileCardProps {
   onPreview: () => void;
   onDelete: () => void;
   onDownload: () => void;
-  onEdit?: () => void; // New prop for double-click action
   translations?: {
     delete: string;
     download: string;
@@ -38,7 +37,6 @@ export const SortableFileCard: React.FC<SortableFileCardProps> = ({
   onPreview,
   onDelete,
   onDownload,
-  onEdit,
   translations
 }) => {
   const {
@@ -90,12 +88,7 @@ export const SortableFileCard: React.FC<SortableFileCardProps> = ({
 
       <div 
         onClick={onPreview}
-        onDoubleClick={(e) => {
-          e.stopPropagation();
-          if (onEdit) onEdit();
-        }}
         className="aspect-square bg-gray-100 flex items-center justify-center relative border-b-2 border-black overflow-hidden cursor-pointer"
-        title="Click to preview, Double-click to edit"
       >
         {showThumbnail ? (
           <img src={file.url} alt={file.name} className="w-full h-full object-cover pointer-events-none select-none transition-transform duration-500 group-hover:scale-110" />
