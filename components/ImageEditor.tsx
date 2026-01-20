@@ -24,6 +24,10 @@ const FONT_OPTIONS = [
   { label: 'Nanum Gothic', value: '"Nanum Gothic", sans-serif' },
   { label: 'Nanum Myeongjo', value: '"Nanum Myeongjo", serif' },
   { label: 'Space Grotesk', value: '"Space Grotesk", sans-serif' },
+  { label: 'Roboto', value: '"Roboto", sans-serif' },
+  { label: 'Lato', value: '"Lato", sans-serif' },
+  { label: 'Open Sans', value: '"Open Sans", sans-serif' },
+  { label: 'Montserrat', value: '"Montserrat", sans-serif' },
   { label: 'System', value: '-apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Malgun Gothic", sans-serif' },
 ];
 
