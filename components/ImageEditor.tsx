@@ -3,7 +3,7 @@ import {
   X, Save, Undo, Redo, Eraser, Type, Minus, Plus, 
   Crop, RotateCw, SlidersHorizontal, Check, MousePointer2, 
   Pen, Square, Circle as CircleIcon, Slash, ArrowRight,
-  AlignLeft, AlignCenter, AlignRight, Pipette, Triangle, PaintBucket
+  AlignLeft, AlignCenter, AlignRight, Pipette, Triangle, PaintBucket, PaintRoller
 } from 'lucide-react';
 import { Button } from './Button';
 import { Tooltip } from './Tooltip';
@@ -27,11 +27,17 @@ const FONT_OPTIONS = [
   { label: 'System', value: '-apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Malgun Gothic", sans-serif' },
 ];
 
-type DrawingTool = 'eraser' | 'text' | 'pen' | 'line' | 'arrow' | 'rect' | 'circle' | 'triangle' | 'eyedropper';
+type DrawingTool = 'eraser' | 'text' | 'pen' | 'line' | 'arrow' | 'rect' | 'circle' | 'triangle' | 'eyedropper' | 'cover';
+
+interface HistoryState {
+  background: ImageData;
+  drawing: ImageData;
+}
 
 export const ImageEditor: React.FC<ImageEditorProps> = ({ file, onSave, onClose, initialMode = 'draw' }) => {
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-  const tempCanvasRef = useRef<HTMLCanvasElement>(null); // Layer for shapes
+  const backgroundCanvasRef = useRef<HTMLCanvasElement>(null); // Layer 1: Original Image
+  const canvasRef = useRef<HTMLCanvasElement>(null);           // Layer 2: User Drawings
+  const tempCanvasRef = useRef<HTMLCanvasElement>(null);       // Layer 3: Interaction/Preview
   const containerRef = useRef<HTMLDivElement>(null);
   
   // Refs for drawing state to avoid re-renders during mousemove
@@ -39,11 +45,12 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ file, onSave, onClose,
   const startPosRef = useRef<{ x: number; y: number } | null>(null);
   const lastPosRef = useRef<{ x: number; y: number } | null>(null); // For smooth pen strokes
 
+  const [bgCtx, setBgCtx] = useState<CanvasRenderingContext2D | null>(null);
   const [ctx, setCtx] = useState<CanvasRenderingContext2D | null>(null);
   const [tempCtx, setTempCtx] = useState<CanvasRenderingContext2D | null>(null);
   
-  // History State
-  const [history, setHistory] = useState<ImageData[]>([]);
+  // History State (Stores both layers)
+  const [history, setHistory] = useState<HistoryState[]>([]);
   const [historyStep, setHistoryStep] = useState<number>(-1);
   
   // Modes
@@ -55,6 +62,7 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ file, onSave, onClose,
   
   // Tool Config
   const [strokeSize, setStrokeSize] = useState(5);
+  const [eraserSize, setEraserSize] = useState(30); // Independent eraser size, defaults larger
   const [strokeColor, setStrokeColor] = useState('#000000');
   const [opacity, setOpacity] = useState(100); // 0-100
 
@@ -76,14 +84,18 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ file, onSave, onClose,
 
   // Initialize Canvas
   useEffect(() => {
+    const bgCanvas = backgroundCanvasRef.current;
     const canvas = canvasRef.current;
     const tempCanvas = tempCanvasRef.current;
-    if (!canvas || !tempCanvas) return;
 
+    if (!bgCanvas || !canvas || !tempCanvas) return;
+
+    const backgroundContext = bgCanvas.getContext('2d', { willReadFrequently: true });
     const context = canvas.getContext('2d', { willReadFrequently: true });
     const tempContext = tempCanvas.getContext('2d');
     
-    if (!context || !tempContext) return;
+    if (!backgroundContext || !context || !tempContext) return;
+    setBgCtx(backgroundContext);
     setCtx(context);
     setTempCtx(tempContext);
 
@@ -92,19 +104,27 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ file, onSave, onClose,
     img.crossOrigin = "anonymous"; 
     
     img.onload = () => {
-      // Set canvas size to match image natural size
-      canvas.width = img.width;
-      canvas.height = img.height;
-      tempCanvas.width = img.width;
-      tempCanvas.height = img.height;
+      const w = img.width;
+      const h = img.height;
 
+      // Set dimensions for ALL layers
+      bgCanvas.width = w; bgCanvas.height = h;
+      canvas.width = w; canvas.height = h;
+      tempCanvas.width = w; tempCanvas.height = h;
+
+      // Draw original image onto Background Layer
+      backgroundContext.drawImage(img, 0, 0);
+
+      // Drawing layer stays empty (transparent) initially
       context.lineCap = 'round';
       context.lineJoin = 'round';
-      context.drawImage(img, 0, 0);
+      context.clearRect(0, 0, w, h); // Ensure drawing layer is clean transparent
       
-      // Initialize history
-      const initialData = context.getImageData(0, 0, canvas.width, canvas.height);
-      setHistory([initialData]);
+      // Initialize history with initial state of both layers
+      const initialBgData = backgroundContext.getImageData(0, 0, w, h);
+      const initialDrawData = context.getImageData(0, 0, w, h);
+      
+      setHistory([{ background: initialBgData, drawing: initialDrawData }]);
       setHistoryStep(0);
     };
   }, [file.url]);
@@ -116,15 +136,18 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ file, onSave, onClose,
     }
   }, [textInput]);
 
-  const saveState = (context: CanvasRenderingContext2D = ctx!) => {
-    if (!context || !canvasRef.current) return;
-    const imageData = context.getImageData(0, 0, canvasRef.current.width, canvasRef.current.height);
+  const saveState = () => {
+    if (!bgCtx || !ctx || !canvasRef.current || !backgroundCanvasRef.current) return;
     
-    // Create new history path starting from current step, discarding any "future" states
+    const w = canvasRef.current.width;
+    const h = canvasRef.current.height;
+
+    const bgData = bgCtx.getImageData(0, 0, w, h);
+    const drawData = ctx.getImageData(0, 0, w, h);
+    
     const newHistory = history.slice(0, historyStep + 1);
-    newHistory.push(imageData);
+    newHistory.push({ background: bgData, drawing: drawData });
     
-    // Limit history size to 20 to manage memory
     if (newHistory.length > 20) {
         newHistory.shift();
     }
@@ -134,22 +157,21 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ file, onSave, onClose,
   };
 
   const restoreState = (index: number) => {
-      if (!ctx || !canvasRef.current || index < 0 || index >= history.length) return;
-      const imageData = history[index];
+      if (!bgCtx || !ctx || !backgroundCanvasRef.current || !canvasRef.current || index < 0 || index >= history.length) return;
       
-      // Sync temp canvas size just in case
-      if (tempCanvasRef.current) {
-          tempCanvasRef.current.width = imageData.width;
-          tempCanvasRef.current.height = imageData.height;
-      }
+      const state = history[index];
+      const { width, height } = state.background;
 
-      // Resize canvas if needed (for crop/rotate undo/redo)
-      if (canvasRef.current.width !== imageData.width || canvasRef.current.height !== imageData.height) {
-        canvasRef.current.width = imageData.width;
-        canvasRef.current.height = imageData.height;
-      }
-      
-      ctx.putImageData(imageData, 0, 0);
+      // Resize all canvases if history size differs (e.g. after crop/rotate)
+      [backgroundCanvasRef.current, canvasRef.current, tempCanvasRef.current].forEach(c => {
+          if (c && (c.width !== width || c.height !== height)) {
+              c.width = width;
+              c.height = height;
+          }
+      });
+
+      bgCtx.putImageData(state.background, 0, 0);
+      ctx.putImageData(state.drawing, 0, 0);
       setHistoryStep(index);
   };
 
@@ -168,7 +190,6 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ file, onSave, onClose,
   // Keyboard Shortcuts
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      // Check if user is typing in an input field (like text tool)
       if ((e.target as HTMLElement).tagName === 'INPUT') return;
 
       const isCtrlOrCmd = e.ctrlKey || e.metaKey;
@@ -191,7 +212,6 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ file, onSave, onClose,
   }, [historyStep, history, ctx]);
 
   const getCoordinates = (e: React.MouseEvent<HTMLElement>) => {
-    // We can use tempCanvas for coordinate calculation as it's overlaying exactly
     if (!tempCanvasRef.current) return { x: 0, y: 0 };
     const rect = tempCanvasRef.current.getBoundingClientRect();
     const scaleX = tempCanvasRef.current.width / rect.width;
@@ -204,21 +224,28 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ file, onSave, onClose,
 
   // --- DRAWING LOGIC ---
   const startDrawing = (e: React.MouseEvent<HTMLCanvasElement>) => {
-    if (mode !== 'draw' || !ctx || !tempCtx || !canvasRef.current || !tempCanvasRef.current) return;
+    if (mode !== 'draw' || !ctx || !tempCtx || !canvasRef.current || !tempCanvasRef.current || !bgCtx) return;
     
     const { x, y } = getCoordinates(e);
 
     // Handle Eyedropper Tool
     if (drawTool === 'eyedropper') {
-        const pixel = ctx.getImageData(x, y, 1, 1).data;
-        // Convert [r,g,b] to hex
-        const hex = "#" + ((1 << 24) + (pixel[0] << 16) + (pixel[1] << 8) + pixel[2]).toString(16).slice(1);
-        setStrokeColor(hex);
-        setDrawTool('pen');
+        // We need to sample from the combined view
+        const sampleCanvas = document.createElement('canvas');
+        sampleCanvas.width = 1; sampleCanvas.height = 1;
+        const sampleCtx = sampleCanvas.getContext('2d');
+        if (sampleCtx) {
+            // Draw BG then Drawing to sample correct color
+            sampleCtx.drawImage(backgroundCanvasRef.current!, -x, -y);
+            sampleCtx.drawImage(canvasRef.current!, -x, -y);
+            const pixel = sampleCtx.getImageData(0, 0, 1, 1).data;
+            const hex = "#" + ((1 << 24) + (pixel[0] << 16) + (pixel[1] << 8) + pixel[2]).toString(16).slice(1);
+            setStrokeColor(hex);
+            setDrawTool('pen');
+        }
         return;
     }
 
-    // Handle Text Tool
     if (drawTool === 'text') {
         const rect = tempCanvasRef.current.getBoundingClientRect();
         const clickX = e.clientX - rect.left;
@@ -237,38 +264,59 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ file, onSave, onClose,
     startPosRef.current = { x, y };
     lastPosRef.current = { x, y };
 
-    // Setup Contexts
-    // Main context for Pen/Eraser
+    // Setup Contexts (Drawing on the Top Transparent Layer)
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';
-    ctx.lineWidth = strokeSize;
-    ctx.strokeStyle = drawTool === 'eraser' ? '#FFFFFF' : strokeColor;
-    ctx.globalAlpha = drawTool === 'eraser' ? 1.0 : opacity / 100;
+    
+    const currentSize = drawTool === 'eraser' ? eraserSize : strokeSize;
+    ctx.lineWidth = currentSize;
+    
+    if (drawTool === 'eraser') {
+      // Acts as "White-out" to cover underlying PDF content
+      ctx.globalCompositeOperation = 'source-over';
+      ctx.globalAlpha = 1.0;
+      ctx.strokeStyle = '#FFFFFF'; 
+    } else if (drawTool === 'cover') {
+      // Smart Cover: Sample background color from START position and paint with it
+      // 1. Sample from background canvas (Layer 1)
+      const pixel = bgCtx.getImageData(Math.floor(x), Math.floor(y), 1, 1).data;
+      const hex = "#" + ((1 << 24) + (pixel[0] << 16) + (pixel[1] << 8) + pixel[2]).toString(16).slice(1);
+      
+      // 2. Set as brush color and update UI state
+      setStrokeColor(hex);
+      ctx.strokeStyle = hex;
+      
+      // 3. Force settings for covering
+      ctx.globalCompositeOperation = 'source-over';
+      ctx.globalAlpha = 1.0;
+    } else {
+      ctx.globalCompositeOperation = 'source-over';
+      ctx.strokeStyle = strokeColor;
+      ctx.globalAlpha = opacity / 100;
+    }
 
-    // Temp context for Shapes
+    // Temp context setup (for shape previews)
     tempCtx.lineCap = 'round';
     tempCtx.lineJoin = 'round';
-    tempCtx.lineWidth = strokeSize;
+    tempCtx.lineWidth = currentSize;
     tempCtx.strokeStyle = strokeColor;
     tempCtx.fillStyle = strokeColor;
     tempCtx.globalAlpha = opacity / 100;
     
-    if (drawTool === 'pen' || drawTool === 'eraser') {
+    if (drawTool === 'pen' || drawTool === 'eraser' || drawTool === 'cover') {
       ctx.beginPath();
       ctx.moveTo(x, y);
-      // Draw single point for click
       ctx.lineTo(x, y);
       ctx.stroke();
     }
   };
 
   const draw = (e: React.MouseEvent<HTMLCanvasElement>) => {
-    if (!isDrawingRef.current || mode !== 'draw' || !ctx || !tempCtx || !canvasRef.current || !tempCanvasRef.current) return;
+    if (!isDrawingRef.current || mode !== 'draw' || !ctx || !tempCtx || !tempCanvasRef.current) return;
     
     const { x, y } = getCoordinates(e);
 
-    if (drawTool === 'pen' || drawTool === 'eraser') {
-      // Optimization: Draw individual segment instead of full path
+    if (drawTool === 'pen' || drawTool === 'eraser' || drawTool === 'cover') {
       if (lastPosRef.current) {
           ctx.beginPath();
           ctx.moveTo(lastPosRef.current.x, lastPosRef.current.y);
@@ -277,7 +325,6 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ file, onSave, onClose,
           lastPosRef.current = { x, y };
       }
     } else if (startPosRef.current) {
-      // Optimization: Clear and redraw only on Temp Canvas
       tempCtx.clearRect(0, 0, tempCanvasRef.current.width, tempCanvasRef.current.height);
       
       const startX = startPosRef.current.x;
@@ -286,18 +333,15 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ file, onSave, onClose,
       let currentX = x;
       let currentY = y;
 
-      // Handle Shift key for constraints
       if (e.shiftKey) {
         const dx = x - startX;
         const dy = y - startY;
 
         if (drawTool === 'rect' || drawTool === 'circle' || drawTool === 'triangle') {
-            // Constrain to perfect square/circle (1:1 aspect ratio)
             const side = Math.max(Math.abs(dx), Math.abs(dy));
             currentX = startX + (dx >= 0 ? side : -side);
             currentY = startY + (dy >= 0 ? side : -side);
         } else if (drawTool === 'line' || drawTool === 'arrow') {
-            // Snap to 45 degree increments
             const angle = Math.atan2(dy, dx);
             const snapAngle = Math.round(angle / (Math.PI / 4)) * (Math.PI / 4);
             const dist = Math.sqrt(dx * dx + dy * dy);
@@ -321,31 +365,17 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ file, onSave, onClose,
         tempCtx.moveTo(startX, startY);
         tempCtx.lineTo(currentX, currentY);
         
-        // Draw Arrowhead
         tempCtx.lineTo(currentX - headLength * Math.cos(angle - Math.PI / 6), currentY - headLength * Math.sin(angle - Math.PI / 6));
         tempCtx.moveTo(currentX, currentY);
         tempCtx.lineTo(currentX - headLength * Math.cos(angle + Math.PI / 6), currentY - headLength * Math.sin(angle + Math.PI / 6));
       } else if (drawTool === 'rect') {
         tempCtx.rect(startX, startY, w, h);
       } else if (drawTool === 'circle') {
-        tempCtx.ellipse(
-            startX + w / 2, 
-            startY + h / 2, 
-            Math.abs(w / 2), 
-            Math.abs(h / 2), 
-            0, 0, 2 * Math.PI
-        );
+        tempCtx.ellipse(startX + w / 2, startY + h / 2, Math.abs(w / 2), Math.abs(h / 2), 0, 0, 2 * Math.PI);
       } else if (drawTool === 'triangle') {
-        const topX = startX + w / 2;
-        const topY = startY;
-        const leftX = startX;
-        const leftY = startY + h;
-        const rightX = startX + w;
-        const rightY = startY + h;
-
-        tempCtx.moveTo(topX, topY);
-        tempCtx.lineTo(rightX, rightY);
-        tempCtx.lineTo(leftX, leftY);
+        tempCtx.moveTo(startX + w / 2, startY);
+        tempCtx.lineTo(startX + w, startY + h);
+        tempCtx.lineTo(startX, startY + h);
         tempCtx.closePath();
       }
 
@@ -363,10 +393,12 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ file, onSave, onClose,
       
       if (ctx) {
           ctx.closePath();
+          // Reset context to safe defaults for next operation
           ctx.globalAlpha = 1.0; 
+          ctx.globalCompositeOperation = 'source-over';
+          ctx.strokeStyle = strokeColor;
       }
 
-      // If shape tool, commit temp canvas to main canvas
       if ((['rect', 'circle', 'line', 'arrow', 'triangle'].includes(drawTool)) && tempCanvasRef.current && ctx && tempCtx) {
           ctx.drawImage(tempCanvasRef.current, 0, 0);
           tempCtx.clearRect(0, 0, tempCanvasRef.current.width, tempCanvasRef.current.height);
@@ -407,101 +439,104 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ file, onSave, onClose,
     setTextInput(null);
   };
 
-  // --- ROTATE LOGIC ---
-  const handleRotate = () => {
-    if (!ctx || !canvasRef.current || !tempCanvasRef.current) return;
-    const canvas = canvasRef.current;
-    
-    const tempCanvas = document.createElement('canvas');
-    tempCanvas.width = canvas.height;
-    tempCanvas.height = canvas.width;
-    const tempCtx = tempCanvas.getContext('2d');
-    if (!tempCtx) return;
+  // --- HELPER FOR TRANSFORMATIONS ---
+  const applyTransformToBoth = (transformFn: (context: CanvasRenderingContext2D, width: number, height: number) => ImageData) => {
+      if (!bgCtx || !ctx || !backgroundCanvasRef.current) return;
+      
+      const w = backgroundCanvasRef.current.width;
+      const h = backgroundCanvasRef.current.height;
 
-    // Rotate 90 degrees clockwise
-    tempCtx.save();
-    tempCtx.translate(tempCanvas.width / 2, tempCanvas.height / 2);
-    tempCtx.rotate((90 * Math.PI) / 180);
-    tempCtx.drawImage(canvas, -canvas.width / 2, -canvas.height / 2);
-    tempCtx.restore();
+      const newBgData = transformFn(bgCtx, w, h);
+      const newDrawData = transformFn(ctx, w, h);
 
-    // Update main canvas
-    canvas.width = tempCanvas.width;
-    canvas.height = tempCanvas.height;
-    ctx.drawImage(tempCanvas, 0, 0);
+      // Update sizes
+      [backgroundCanvasRef.current, canvasRef.current, tempCanvasRef.current].forEach(c => {
+          if (c) {
+              c.width = newBgData.width;
+              c.height = newBgData.height;
+          }
+      });
 
-    // Update temp overlay canvas size
-    tempCanvasRef.current.width = tempCanvas.width;
-    tempCanvasRef.current.height = tempCanvas.height;
-    
-    saveState();
+      bgCtx.putImageData(newBgData, 0, 0);
+      ctx.putImageData(newDrawData, 0, 0);
+
+      saveState();
   };
 
-  // --- CROP LOGIC ---
-  const startCropSelection = (e: React.MouseEvent<HTMLDivElement>) => {
-    if (mode !== 'crop' || !canvasRef.current) return;
-    const rect = canvasRef.current.getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    const y = e.clientY - rect.top;
-    
+  const rotateCanvas = (context: CanvasRenderingContext2D, w: number, h: number): ImageData => {
+      const temp = document.createElement('canvas');
+      temp.width = h; temp.height = w;
+      const tCtx = temp.getContext('2d');
+      if (!tCtx) return context.getImageData(0,0,1,1);
+
+      tCtx.save();
+      tCtx.translate(h / 2, w / 2);
+      tCtx.rotate((90 * Math.PI) / 180);
+      tCtx.drawImage(context.canvas, -w / 2, -h / 2);
+      tCtx.restore();
+      return tCtx.getImageData(0, 0, h, w);
+  };
+
+  const handleRotate = () => {
+    applyTransformToBoth(rotateCanvas);
+  };
+
+  // --- CROP HANDLERS ---
+  const startCropSelection = (e: React.MouseEvent<HTMLElement>) => {
+    const { x, y } = getCoordinates(e);
+    setIsSelectingCrop(true);
     setCropStart({ x, y });
     setCropSelection({ x, y, w: 0, h: 0 });
-    setIsSelectingCrop(true);
   };
 
-  const updateCropSelection = (e: React.MouseEvent<HTMLDivElement>) => {
-    if (!isSelectingCrop || !cropStart || !canvasRef.current) return;
-    const rect = canvasRef.current.getBoundingClientRect();
-    const currentX = e.clientX - rect.left;
-    const currentY = e.clientY - rect.top;
-
-    const x = Math.min(currentX, cropStart.x);
-    const y = Math.min(currentY, cropStart.y);
-    const w = Math.abs(currentX - cropStart.x);
-    const h = Math.abs(currentY - cropStart.y);
-
-    setCropSelection({ x, y, w, h });
+  const updateCropSelection = (e: React.MouseEvent<HTMLElement>) => {
+    if (!isSelectingCrop || !cropStart) return;
+    const { x, y } = getCoordinates(e);
+    
+    const minX = Math.min(x, cropStart.x);
+    const minY = Math.min(y, cropStart.y);
+    const width = Math.abs(x - cropStart.x);
+    const height = Math.abs(y - cropStart.y);
+    
+    setCropSelection({ x: minX, y: minY, w: width, h: height });
   };
 
   const endCropSelection = () => {
     setIsSelectingCrop(false);
+    setCropStart(null);
   };
 
   const applyCrop = () => {
-    if (!cropSelection || !ctx || !canvasRef.current || !tempCanvasRef.current || cropSelection.w < 5 || cropSelection.h < 5) return;
+    if (!cropSelection || !bgCtx || !ctx || !cropSelection.w || !cropSelection.h) return;
     
-    const rect = canvasRef.current.getBoundingClientRect();
-    const scaleX = canvasRef.current.width / rect.width;
-    const scaleY = canvasRef.current.height / rect.height;
+    const rect = canvasRef.current!.getBoundingClientRect();
+    const scaleX = canvasRef.current!.width / rect.width;
+    const scaleY = canvasRef.current!.height / rect.height;
 
-    const sourceX = cropSelection.x * scaleX;
-    const sourceY = cropSelection.y * scaleY;
-    const sourceW = cropSelection.w * scaleX;
-    const sourceH = cropSelection.h * scaleY;
+    const sX = cropSelection.x * scaleX;
+    const sY = cropSelection.y * scaleY;
+    const sW = cropSelection.w * scaleX;
+    const sH = cropSelection.h * scaleY;
 
-    try {
-        const croppedData = ctx.getImageData(sourceX, sourceY, sourceW, sourceH);
-        
-        canvasRef.current.width = sourceW;
-        canvasRef.current.height = sourceH;
-        ctx.putImageData(croppedData, 0, 0);
+    // Crop both layers
+    const croppedBg = bgCtx.getImageData(sX, sY, sW, sH);
+    const croppedDraw = ctx.getImageData(sX, sY, sW, sH);
 
-        // Update temp overlay canvas size
-        tempCanvasRef.current.width = sourceW;
-        tempCanvasRef.current.height = sourceH;
-        
-        saveState();
-        setCropSelection(null);
-        setMode('draw');
-    } catch (e) {
-        console.error("Crop failed", e);
-    }
+    [backgroundCanvasRef.current, canvasRef.current, tempCanvasRef.current].forEach(c => {
+        if (c) { c.width = sW; c.height = sH; }
+    });
+
+    bgCtx.putImageData(croppedBg, 0, 0);
+    ctx.putImageData(croppedDraw, 0, 0);
+
+    saveState();
+    setCropSelection(null);
+    setMode('draw');
   };
 
-  // --- ADJUSTMENT LOGIC ---
   const applyAdjustments = () => {
-    if (!ctx || !canvasRef.current) return;
-    const canvas = canvasRef.current;
+    if (!bgCtx || !backgroundCanvasRef.current) return;
+    const canvas = backgroundCanvasRef.current;
 
     const tempCanvas = document.createElement('canvas');
     tempCanvas.width = canvas.width;
@@ -509,12 +544,13 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ file, onSave, onClose,
     const tempCtx = tempCanvas.getContext('2d');
     tempCtx?.drawImage(canvas, 0, 0);
 
-    ctx.save();
-    ctx.filter = `brightness(${brightness}%) contrast(${contrast}%)`;
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    ctx.drawImage(tempCanvas, 0, 0);
-    ctx.restore();
+    bgCtx.save();
+    bgCtx.filter = `brightness(${brightness}%) contrast(${contrast}%)`;
+    bgCtx.clearRect(0, 0, canvas.width, canvas.height);
+    bgCtx.drawImage(tempCanvas, 0, 0);
+    bgCtx.restore();
 
+    // We only adjust background, drawing layer remains untouched
     saveState();
     setBrightness(100);
     setContrast(100);
@@ -522,26 +558,27 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ file, onSave, onClose,
   };
 
   const handleSave = () => {
-    if (!canvasRef.current) return;
+    if (!backgroundCanvasRef.current || !canvasRef.current) return;
     
-    if (mode === 'adjust' && (brightness !== 100 || contrast !== 100)) {
-        const canvas = canvasRef.current;
-        const tempCanvas = document.createElement('canvas');
-        tempCanvas.width = canvas.width;
-        tempCanvas.height = canvas.height;
-        const tempCtx = tempCanvas.getContext('2d');
-        tempCtx?.drawImage(canvas, 0, 0);
-
-        if (ctx) {
-            ctx.save();
-            ctx.filter = `brightness(${brightness}%) contrast(${contrast}%)`;
-            ctx.clearRect(0, 0, canvas.width, canvas.height);
-            ctx.drawImage(tempCanvas, 0, 0);
-            ctx.restore();
+    // Composite both layers for final output
+    const exportCanvas = document.createElement('canvas');
+    exportCanvas.width = backgroundCanvasRef.current.width;
+    exportCanvas.height = backgroundCanvasRef.current.height;
+    const exportCtx = exportCanvas.getContext('2d');
+    
+    if (exportCtx) {
+        // 1. Draw Background (with filters if active in adjust mode)
+        if (mode === 'adjust' && (brightness !== 100 || contrast !== 100)) {
+            exportCtx.filter = `brightness(${brightness}%) contrast(${contrast}%)`;
         }
+        exportCtx.drawImage(backgroundCanvasRef.current, 0, 0);
+        exportCtx.filter = 'none';
+
+        // 2. Draw User Drawings
+        exportCtx.drawImage(canvasRef.current, 0, 0);
     }
 
-    canvasRef.current.toBlob((blob) => {
+    exportCanvas.toBlob((blob) => {
       if (blob) onSave(blob);
     }, 'image/png');
   };
@@ -550,6 +587,20 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ file, onSave, onClose,
     if (textAlign === 'center') return 'translate(-50%, -50%)';
     if (textAlign === 'right') return 'translate(-100%, -50%)';
     return 'translate(0, -50%)';
+  };
+
+  // Helper to get current display size for toolbar
+  const getCurrentSize = () => {
+    if (drawTool === 'text') return textSize;
+    if (drawTool === 'eraser') return eraserSize;
+    return strokeSize;
+  };
+
+  // Helper to handle size updates from toolbar
+  const updateSize = (delta: number) => {
+    if (drawTool === 'text') setTextSize(Math.max(10, textSize + (delta * 2)));
+    else if (drawTool === 'eraser') setEraserSize(Math.max(1, eraserSize + delta));
+    else setStrokeSize(Math.max(1, strokeSize + delta));
   };
 
   return (
@@ -565,6 +616,10 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ file, onSave, onClose,
               <div className="w-[1px] bg-gray-200"></div>
               <Tooltip content="Eraser">
                 <button onClick={() => { setMode('draw'); setDrawTool('eraser'); setTextInput(null); }} className={`p-2 hover:bg-gray-100 ${mode === 'draw' && drawTool === 'eraser' ? 'bg-blue-100 text-blue-700' : ''}`}><Eraser size={20} /></button>
+              </Tooltip>
+              <div className="w-[1px] bg-gray-200"></div>
+              <Tooltip content="Smart Cover (Match Background)">
+                <button onClick={() => { setMode('draw'); setDrawTool('cover'); setTextInput(null); }} className={`p-2 hover:bg-gray-100 ${mode === 'draw' && drawTool === 'cover' ? 'bg-blue-100 text-blue-700' : ''}`}><PaintRoller size={20} /></button>
               </Tooltip>
               <div className="w-[1px] bg-gray-200"></div>
               <Tooltip content="Line">
@@ -612,16 +667,16 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ file, onSave, onClose,
             {mode === 'draw' && (
                <div className="flex items-center gap-2 bg-white border border-black px-2 py-1 shadow-sm rounded scale-90 md:scale-100 origin-left">
                  
-                 {/* Stroke Size for all drawing tools */}
+                 {/* Stroke/Eraser/Text Size */}
                  {drawTool !== 'eyedropper' && (
                      <>
-                        <button onMouseDown={(e) => e.preventDefault()} onClick={() => drawTool === 'text' ? setTextSize(Math.max(10, textSize - 2)) : setStrokeSize(Math.max(1, strokeSize - 1))} className="p-1 hover:bg-gray-100 rounded"><Minus size={14} /></button>
-                        <span className="text-xs font-bold w-6 text-center">{drawTool === 'text' ? textSize : strokeSize}</span>
-                        <button onMouseDown={(e) => e.preventDefault()} onClick={() => drawTool === 'text' ? setTextSize(textSize + 2) : setStrokeSize(strokeSize + 1)} className="p-1 hover:bg-gray-100 rounded"><Plus size={14} /></button>
+                        <button onMouseDown={(e) => e.preventDefault()} onClick={() => updateSize(-1)} className="p-1 hover:bg-gray-100 rounded"><Minus size={14} /></button>
+                        <span className="text-xs font-bold w-6 text-center">{getCurrentSize()}</span>
+                        <button onMouseDown={(e) => e.preventDefault()} onClick={() => updateSize(1)} className="p-1 hover:bg-gray-100 rounded"><Plus size={14} /></button>
                      </>
                  )}
                  
-                 {drawTool !== 'eraser' && drawTool !== 'eyedropper' && (
+                 {drawTool !== 'eraser' && drawTool !== 'eyedropper' && drawTool !== 'cover' && (
                     <>
                         <div className="w-[1px] h-4 bg-gray-300 mx-1"></div>
                         <input type="color" value={strokeColor} onChange={(e) => setStrokeColor(e.target.value)} className="w-6 h-6 border-0 p-0 rounded cursor-pointer" title="Color" />
@@ -641,7 +696,7 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ file, onSave, onClose,
                  )}
 
                  {/* Opacity for Pen and Shapes */}
-                 {drawTool !== 'eraser' && drawTool !== 'text' && drawTool !== 'eyedropper' && (
+                 {drawTool !== 'eraser' && drawTool !== 'text' && drawTool !== 'eyedropper' && drawTool !== 'cover' && (
                     <>
                         <div className="w-[1px] h-4 bg-gray-300 mx-1"></div>
                         <div className="flex flex-col w-16">
@@ -676,6 +731,9 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ file, onSave, onClose,
                  {/* Eyedropper Message */}
                  {drawTool === 'eyedropper' && (
                      <span className="text-xs font-medium text-gray-500 px-2">Click image to pick color</span>
+                 )}
+                 {drawTool === 'cover' && (
+                     <span className="text-xs font-medium text-gray-500 px-2">Click background to paint with it</span>
                  )}
                </div>
             )}
@@ -726,22 +784,29 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ file, onSave, onClose,
         {/* Canvas Workspace */}
         <div className="flex-grow overflow-auto bg-gray-200 relative p-8 flex items-center justify-center cursor-crosshair select-none" ref={containerRef}>
           <div 
-             className="relative shadow-lg border border-gray-300 bg-white"
+             className="relative shadow-lg border border-gray-300"
              style={{ 
-                 width: canvasRef.current ? canvasRef.current.clientWidth : 'auto',
-                 height: canvasRef.current ? canvasRef.current.clientHeight : 'auto'
+                 width: backgroundCanvasRef.current ? backgroundCanvasRef.current.clientWidth : 'auto',
+                 height: backgroundCanvasRef.current ? backgroundCanvasRef.current.clientHeight : 'auto',
+                 backgroundColor: 'white'
              }}
           >
-            {/* Main Image Canvas */}
+            {/* Layer 1: Background Image */}
             <canvas
-              ref={canvasRef}
-              className="max-w-none block"
+              ref={backgroundCanvasRef}
+              className="absolute inset-0 block max-w-none"
               style={{
                   filter: mode === 'adjust' ? `brightness(${brightness}%) contrast(${contrast}%)` : 'none',
               }}
             />
+
+            {/* Layer 2: User Drawings (Transparent) */}
+            <canvas
+              ref={canvasRef}
+              className="absolute inset-0 block max-w-none"
+            />
             
-            {/* Temp/Interaction Canvas Layer */}
+            {/* Layer 3: Temp/Interaction */}
             <canvas
               ref={tempCanvasRef}
               onMouseDown={startDrawing}
@@ -749,17 +814,17 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ file, onSave, onClose,
               onMouseUp={stopDrawing}
               onMouseLeave={stopDrawing}
               onClick={(e) => drawTool === 'text' && startDrawing(e)}
-              className="absolute inset-0 max-w-none block"
+              className="absolute inset-0 max-w-none block z-10"
               style={{
                   pointerEvents: mode === 'crop' ? 'none' : 'auto',
-                  cursor: drawTool === 'eyedropper' ? 'crosshair' : 'crosshair'
+                  cursor: drawTool === 'eyedropper' || drawTool === 'cover' ? 'crosshair' : 'crosshair'
               }}
             />
             
             {/* Crop Overlay */}
             {mode === 'crop' && (
                 <div 
-                    className="absolute inset-0 cursor-crosshair z-10"
+                    className="absolute inset-0 cursor-crosshair z-20"
                     onMouseDown={startCropSelection}
                     onMouseMove={updateCropSelection}
                     onMouseUp={endCropSelection}
@@ -786,7 +851,7 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ file, onSave, onClose,
 
             {/* Text Input Overlay */}
             {textInput && (
-              <div style={{ position: 'absolute', left: textInput.x, top: textInput.y, transform: getInputTransform(), zIndex: 20 }}>
+              <div style={{ position: 'absolute', left: textInput.x, top: textInput.y, transform: getInputTransform(), zIndex: 30 }}>
                 <input
                   ref={textInputRef}
                   type="text"
