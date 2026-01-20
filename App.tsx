@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { Layout, Images, FileText, CheckCircle, ArrowRight, Download, Github, FileArchive, X, Eye, Pencil, FileStack, Globe, Cog, Crop, RotateCw, SlidersHorizontal, Files, Layers, Plus, UploadCloud, Scissors, ChevronDown, ChevronUp, Clock, AlertCircle, FileType, FolderOutput, RefreshCw } from 'lucide-react';
+import { Layout, Images, FileText, CheckCircle, ArrowRight, Download, Github, FileArchive, X, Eye, Pencil, FileStack, Globe, Cog, Crop, RotateCw, SlidersHorizontal, Files, Layers, Plus, UploadCloud, Scissors, ChevronDown, ChevronUp, Clock, AlertCircle, FileType, FolderOutput } from 'lucide-react';
 import { useDropzone, Accept } from 'react-dropzone';
 import { 
   DndContext, 
@@ -224,25 +224,14 @@ export default function App() {
   // Helper to determine layout state
   const isPreviewMode = !!previewFile || !!editingFile;
 
-  // Track previous counts to detect additions
-  const prevFileCount = useRef(0);
-  const prevQueueCount = useRef(0);
-
-  // Effect: Restore expanded state when exiting preview mode
+  // Auto-collapse results when entering preview mode
   useEffect(() => {
-    if (!isPreviewMode) {
+    if (isPreviewMode) {
+      setIsResultsCollapsed(true);
+    } else {
       setIsResultsCollapsed(false);
     }
   }, [isPreviewMode]);
-
-  // Effect: Expand results panel when items are added to queue or generated files
-  useEffect(() => {
-    if (generatedFiles.length > prevFileCount.current || queue.length > prevQueueCount.current) {
-        setIsResultsCollapsed(false);
-    }
-    prevFileCount.current = generatedFiles.length;
-    prevQueueCount.current = queue.length;
-  }, [generatedFiles.length, queue.length]);
 
   // Dnd Sensors
   const sensors = useSensors(
@@ -829,8 +818,8 @@ export default function App() {
       <nav className="bg-white border-b-2 border-black sticky top-0 z-40 shadow-neo-sm">
         <div className="max-w-7xl mx-auto px-6 h-18 py-4 flex justify-between items-center">
           <div className="flex items-center gap-3">
-            <div className="bg-white border-2 border-black p-1 shadow-neo-sm rounded-lg overflow-hidden">
-              <img src="https://r2-images.dacon.co.kr/external/favicon.ico" alt="ParsePDF Logo" className="w-8 h-8 object-cover" />
+            <div className="bg-primary border-2 border-black p-2 shadow-neo-sm rounded-lg">
+              <Layout size={24} className="text-white" />
             </div>
             <span className="text-2xl font-black tracking-tighter text-black uppercase">ParsePDF</span>
           </div>
@@ -1012,6 +1001,63 @@ export default function App() {
                     </div>
                   </div>
                 </div>
+              ) : queue.length > 0 ? (
+                // QUEUE VIEW
+                <div className="flex flex-col h-full min-h-[500px] p-2">
+                    <div className="flex items-center justify-between mb-4 px-2">
+                        <div className="flex items-center gap-2">
+                            <Cog className={`text-primary ${status === ProcessStatus.PROCESSING ? 'animate-spin' : ''}`} size={24} />
+                            <h3 className="text-xl font-black uppercase">{t('processing')}</h3>
+                        </div>
+                        <Button onClick={handleAddFilesClick} size="sm" variant="secondary" className="h-8 px-3 text-xs">
+                           <Plus size={14} /> {t('addMore')}
+                        </Button>
+                    </div>
+
+                    <div className="flex-grow overflow-y-auto space-y-3 pr-2 custom-scrollbar">
+                        {queue.map((item, idx) => (
+                            <div key={item.id} className="bg-white border-2 border-black rounded-lg p-4 shadow-sm flex items-center gap-4">
+                                <div className="shrink-0 w-10 h-10 flex items-center justify-center bg-gray-100 rounded-md border-2 border-black">
+                                    {item.status === ProcessStatus.COMPLETED ? (
+                                        <CheckCircle className="text-green-600" size={24} />
+                                    ) : item.status === ProcessStatus.PROCESSING ? (
+                                        <Cog className="text-primary animate-spin" size={24} />
+                                    ) : item.status === ProcessStatus.ERROR ? (
+                                        <AlertCircle className="text-red-500" size={24} />
+                                    ) : (
+                                        <Clock className="text-gray-400" size={24} />
+                                    )}
+                                </div>
+                                <div className="flex-grow min-w-0">
+                                    <div className="flex justify-between mb-1">
+                                        <span className="font-bold text-sm truncate">{item.file.name}</span>
+                                        <span className={`text-xs font-bold ${item.status === ProcessStatus.COMPLETED ? 'text-green-600' : item.status === ProcessStatus.ERROR ? 'text-red-500' : 'text-gray-500'}`}>
+                                            {item.status === ProcessStatus.QUEUED ? 'WAITING' : 
+                                             item.status === ProcessStatus.COMPLETED ? 'DONE' : 
+                                             item.status === ProcessStatus.ERROR ? 'FAILED' : 
+                                             `${Math.round(item.progress)}%`}
+                                        </span>
+                                    </div>
+                                    
+                                    {item.status === ProcessStatus.ERROR ? (
+                                        <div className="text-xs text-red-500 font-medium bg-red-50 p-2 rounded border border-red-200">
+                                            {item.errorMessage || "Processing failed"}
+                                        </div>
+                                    ) : (
+                                        <div className="h-2 bg-gray-100 rounded-full border border-black/10 overflow-hidden">
+                                            <div 
+                                                className={`h-full transition-all duration-300 ${
+                                                    item.status === ProcessStatus.COMPLETED ? 'bg-green-500' : 'bg-primary'
+                                                }`}
+                                                style={{ width: `${item.progress}%` }}
+                                            ></div>
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                </div>
               ) : (
                 <DropZone 
                   mode={mode} 
@@ -1053,6 +1099,14 @@ export default function App() {
                     <span className="text-xs font-bold text-primary uppercase">{t('expand')}</span>
                  </div>
               ) : (
+                  generatedFiles.length === 0 ? (
+                    <div className="flex flex-col items-center justify-center h-[400px] text-gray-400 border-2 border-dashed border-gray-300 rounded-xl bg-gray-50">
+                      <div className="p-4 bg-white rounded-full mb-4 border-2 border-gray-300">
+                        <Download size={32} className="opacity-40" />
+                      </div>
+                      <p className="text-sm font-bold text-center px-6">{lang === 'ko' ? '여기에 결과 파일이 나타납니다.' : 'Your files will appear here.'}</p>
+                    </div>
+                  ) : (
                     <div {...getQueueRootProps()} className="flex flex-col h-full relative">
                       {/* Drop Overlay for adding files to queue */}
                       {isQueueDragActive && (
@@ -1062,37 +1116,6 @@ export default function App() {
                           </div>
                       )}
                       <input {...getQueueInputProps()} />
-
-                       {/* ACTIVE QUEUE SECTION IN SIDEBAR */}
-                       {queue.some(i => i.status !== ProcessStatus.COMPLETED) && (
-                          <div className="mb-6 space-y-3 bg-gray-50 p-3 rounded-lg border-2 border-black/10">
-                            <h4 className="text-xs font-black uppercase text-gray-500 flex items-center gap-2">
-                               <RefreshCw className="animate-spin text-primary" size={14} /> 
-                               Processing Queue
-                            </h4>
-                            <div className="space-y-2 max-h-[200px] overflow-y-auto custom-scrollbar pr-1">
-                                {queue.filter(i => i.status !== ProcessStatus.COMPLETED).map(item => (
-                                   <div key={item.id} className="bg-white border border-black/20 rounded p-3 shadow-sm flex flex-col gap-2">
-                                       <div className="flex justify-between items-center">
-                                           <span className="text-xs font-bold truncate w-2/3">{item.file.name}</span>
-                                           {item.status === ProcessStatus.ERROR ? (
-                                               <AlertCircle size={14} className="text-red-500" />
-                                           ) : (
-                                               <span className="text-[10px] font-mono font-bold text-primary">{Math.round(item.progress)}%</span>
-                                           )}
-                                       </div>
-                                       {/* Simple Progress Bar */}
-                                       <div className="h-1.5 w-full bg-gray-100 rounded-full overflow-hidden border border-black/5">
-                                           <div 
-                                               className={`h-full transition-all duration-300 ${item.status === ProcessStatus.ERROR ? 'bg-red-500' : 'bg-primary'}`}
-                                               style={{ width: `${item.progress}%` }}
-                                           ></div>
-                                       </div>
-                                   </div>
-                                ))}
-                            </div>
-                          </div>
-                       )}
 
                       <div className="flex items-center justify-between mb-6 bg-[#d1fae5] p-4 rounded-xl border-2 border-black shadow-neo-sm">
                         <span className="text-sm font-black text-black uppercase">{generatedFiles.length} {t('ready')}</span>
@@ -1199,47 +1222,38 @@ export default function App() {
                         onDragEnd={handleDragEnd}
                       >
                         <div className="overflow-y-auto max-h-[600px] pr-2 custom-scrollbar flex-grow">
-                          {generatedFiles.length === 0 && !queue.some(i => i.status !== ProcessStatus.COMPLETED) ? (
-                              <div className="flex flex-col items-center justify-center h-[200px] text-gray-400 border-2 border-dashed border-gray-300 rounded-xl bg-gray-50 mb-4">
-                                  <div className="p-3 bg-white rounded-full mb-3 border-2 border-gray-300">
-                                      <Download size={24} className="opacity-40" />
-                                  </div>
-                                  <p className="text-xs font-bold text-center px-6">{lang === 'ko' ? '여기에 결과 파일이 나타납니다.' : 'Your files will appear here.'}</p>
-                              </div>
-                          ) : (
-                              <SortableContext 
-                                items={generatedFiles.map(f => f.id)}
-                                strategy={rectSortingStrategy}
+                          <SortableContext 
+                            items={generatedFiles.map(f => f.id)}
+                            strategy={rectSortingStrategy}
+                          >
+                            <div className={`grid gap-3 pb-4 ${isPreviewMode ? 'grid-cols-2 sm:grid-cols-4 lg:grid-cols-6' : 'grid-cols-2'}`}>
+                              {generatedFiles.map((file) => (
+                                <SortableFileCard 
+                                  key={file.id} 
+                                  id={file.id}
+                                  file={file}
+                                  isActive={previewFile?.id === file.id}
+                                  onPreview={() => { setPreviewFile(file); setEditingFile(null); }}
+                                  onDelete={() => handleDelete(file.id)}
+                                  onDownload={() => handleDownload(file.url, file.name)}
+                                  translations={{
+                                    delete: t('ttDelete'),
+                                    download: t('ttDownload')
+                                  }}
+                                />
+                              ))}
+                              
+                              {/* Inline Add Button inside grid */}
+                              <div 
+                                onClick={handleAddFilesClick}
+                                className="aspect-square border-2 border-dashed border-gray-300 rounded-lg flex flex-col items-center justify-center text-gray-400 hover:text-primary hover:border-primary hover:bg-blue-50 cursor-pointer transition-all"
                               >
-                                <div className={`grid gap-3 pb-4 ${isPreviewMode ? 'grid-cols-2 sm:grid-cols-4 lg:grid-cols-6' : 'grid-cols-2'}`}>
-                                  {generatedFiles.map((file) => (
-                                    <SortableFileCard 
-                                      key={file.id} 
-                                      id={file.id}
-                                      file={file}
-                                      isActive={previewFile?.id === file.id}
-                                      onPreview={() => { setPreviewFile(file); setEditingFile(null); }}
-                                      onDelete={() => handleDelete(file.id)}
-                                      onDownload={() => handleDownload(file.url, file.name)}
-                                      translations={{
-                                        delete: t('ttDelete'),
-                                        download: t('ttDownload')
-                                      }}
-                                    />
-                                  ))}
-                                  
-                                  {/* Inline Add Button inside grid */}
-                                  <div 
-                                    onClick={handleAddFilesClick}
-                                    className="aspect-square border-2 border-dashed border-gray-300 rounded-lg flex flex-col items-center justify-center text-gray-400 hover:text-primary hover:border-primary hover:bg-blue-50 cursor-pointer transition-all"
-                                  >
-                                    <Plus size={24} />
-                                    <span className="text-[10px] font-bold uppercase mt-1">{t('addMore')}</span>
-                                  </div>
+                                <Plus size={24} />
+                                <span className="text-[10px] font-bold uppercase mt-1">{t('addMore')}</span>
+                              </div>
 
-                                </div>
-                              </SortableContext>
-                          )}
+                            </div>
+                          </SortableContext>
                         </div>
 
                         <DragOverlay>
@@ -1253,6 +1267,7 @@ export default function App() {
                       </DndContext>
 
                     </div>
+                  )
               )}
             </Card>
           </div>

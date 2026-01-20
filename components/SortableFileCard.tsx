@@ -53,6 +53,7 @@ export const SortableFileCard: React.FC<SortableFileCardProps> = ({
     transition,
     opacity: isDragging ? 0.4 : 1,
     zIndex: isDragging ? 999 : 'auto',
+    touchAction: 'none', // Crucial for reliable touch dragging
   };
 
   const showThumbnail = isImageFile(file);
@@ -68,27 +69,15 @@ export const SortableFileCard: React.FC<SortableFileCardProps> = ({
     <div
       ref={setNodeRef}
       style={style}
-      className={`group relative border-2 border-black rounded-lg bg-white overflow-hidden transition-all duration-300 hover:shadow-neo-lg ${
+      {...attributes} 
+      {...listeners}
+      className={`group relative border-2 border-black rounded-lg bg-white overflow-hidden transition-all duration-300 hover:shadow-neo-lg hover:-translate-y-1 hover:-translate-x-1 cursor-grab active:cursor-grabbing animate-pop-in ${
         isActive ? 'bg-blue-50 ring-2 ring-primary ring-offset-2' : ''
       }`}
     >
-      {/* 
-         DRAG HANDLE 
-         Listeners are applied only here to separate "Dragging" from "Clicking to Preview".
-         Touch action none is required for touch devices.
-      */}
-      <div 
-        {...attributes} 
-        {...listeners}
-        className="absolute top-2 left-2 z-20 p-1.5 bg-white/90 backdrop-blur border border-black rounded text-black cursor-grab active:cursor-grabbing hover:bg-gray-100 transition-colors shadow-sm touch-none"
-        title="Drag to reorder"
-      >
-          <GripVertical size={16} />
-      </div>
-
       <div 
         onClick={onPreview}
-        className="aspect-square bg-gray-100 flex items-center justify-center relative border-b-2 border-black overflow-hidden cursor-pointer"
+        className="aspect-square bg-gray-100 flex items-center justify-center relative border-b-2 border-black overflow-hidden"
       >
         {showThumbnail ? (
           <img src={file.url} alt={file.name} className="w-full h-full object-cover pointer-events-none select-none transition-transform duration-500 group-hover:scale-110" />
@@ -97,6 +86,11 @@ export const SortableFileCard: React.FC<SortableFileCardProps> = ({
         )}
         <div className="absolute inset-0 bg-black/10 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center pointer-events-none backdrop-blur-[1px]">
           <Eye size={24} className="text-white drop-shadow-md transform scale-50 group-hover:scale-100 transition-transform duration-200" />
+        </div>
+        
+        {/* Visual Grip Indicator */}
+        <div className="absolute top-2 left-2 z-20 p-1 bg-white/80 backdrop-blur border border-black rounded text-black/50 group-hover:text-black transition-colors">
+            <GripVertical size={14} />
         </div>
       </div>
       
