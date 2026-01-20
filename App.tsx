@@ -830,7 +830,7 @@ export default function App() {
         <div className="max-w-7xl mx-auto px-6 h-18 py-4 flex justify-between items-center">
           <div className="flex items-center gap-3">
             <div className="bg-white border-2 border-black p-1 shadow-neo-sm rounded-lg overflow-hidden">
-              <img src="https://r2-images.dacon.co.kr/external/DAKER.svg" alt="ParsePDF Logo" className="w-8 h-8 object-cover" />
+              <img src="https://r2-images.dacon.co.kr/external/favicon.ico" alt="ParsePDF Logo" className="w-8 h-8 object-cover" />
             </div>
             <span className="text-2xl font-black tracking-tighter text-black uppercase">ParsePDF</span>
           </div>
