@@ -16,44 +16,67 @@ interface PageSelectionModalProps {
     cancel: string;
     invalid: string;
     selectAll: string;
+    // New optional keys for detailed validation
+    empty?: string;
+    outOfRange?: string;
+    invalidChar?: string;
   };
 }
 
-// Helper function to parse page ranges (e.g., "1-3, 5")
-const parsePageInput = (input: string, totalCount: number): number[] => {
-  // Normalize ranges: remove spaces around hyphens (e.g. "1 - 5" -> "1-5")
-  const normalized = input.replace(/\s*-\s*/g, '-');
+interface ValidationResult {
+    pages: number[];
+    errorKey: 'empty' | 'invalid' | 'outOfRange' | 'invalidChar' | null;
+    errorParam: string | number | null;
+}
+
+// Robust validation and parsing logic
+const validateAndParse = (input: string, totalCount: number): ValidationResult => {
+    if (!input.trim()) return { pages: [], errorKey: 'empty', errorParam: null };
   
-  const pages = new Set<number>();
-  // Allow spaces, commas, semicolons as delimiters
-  const parts = normalized.split(/[,;\s]+/).map(p => p.trim());
+    // Normalize input: "1 - 3" -> "1-3"
+    const normalized = input.replace(/\s*-\s*/g, '-');
+    const parts = normalized.split(/[,;\s]+/).map(p => p.trim()).filter(p => p);
+    const pages = new Set<number>();
   
-  for (const part of parts) {
-    if (!part) continue;
-    
-    if (part.includes('-')) {
-      const ranges = part.split('-').map(s => s.trim());
-      // Ensure we have exactly start and end parts
-      if (ranges.length >= 2) {
-        const start = parseInt(ranges[0], 10);
-        const end = parseInt(ranges[1], 10);
-        
-        if (!isNaN(start) && !isNaN(end)) {
+    for (const part of parts) {
+      // Check for allowed characters (digits and hyphen)
+      if (/[^\d-]/.test(part)) {
+          return { pages: [], errorKey: 'invalidChar', errorParam: part };
+      }
+  
+      if (part.includes('-')) {
+          const ranges = part.split('-');
+          // Handle cases like "1-" or "-1" or "1-2-3"
+          if (ranges.length !== 2 || !ranges[0] || !ranges[1]) {
+               return { pages: [], errorKey: 'invalid', errorParam: part };
+          }
+  
+          const start = parseInt(ranges[0], 10);
+          const end = parseInt(ranges[1], 10);
+  
+          if (isNaN(start) || isNaN(end)) return { pages: [], errorKey: 'invalid', errorParam: part };
+          
           const min = Math.min(start, end);
           const max = Math.max(start, end);
-          for (let i = min; i <= max; i++) pages.add(i);
-        }
-      }
-    } else {
-      const num = parseInt(part, 10);
-      if (!isNaN(num)) pages.add(num);
-    }
-  }
   
-  // Return sorted unique valid pages
-  return Array.from(pages)
-    .filter(p => p >= 1 && p <= totalCount)
-    .sort((a, b) => a - b);
+          if (min < 1) return { pages: [], errorKey: 'outOfRange', errorParam: min };
+          if (max > totalCount) return { pages: [], errorKey: 'outOfRange', errorParam: max };
+  
+          for (let i = min; i <= max; i++) pages.add(i);
+      } else {
+          const num = parseInt(part, 10);
+          if (isNaN(num)) return { pages: [], errorKey: 'invalid', errorParam: part };
+          if (num < 1) return { pages: [], errorKey: 'outOfRange', errorParam: num };
+          if (num > totalCount) return { pages: [], errorKey: 'outOfRange', errorParam: num };
+          pages.add(num);
+      }
+    }
+  
+    return { 
+        pages: Array.from(pages).sort((a,b)=>a-b), 
+        errorKey: null, 
+        errorParam: null 
+    };
 };
 
 export const PageSelectionModal: React.FC<PageSelectionModalProps> = ({ 
@@ -65,12 +88,12 @@ export const PageSelectionModal: React.FC<PageSelectionModalProps> = ({
   translations 
 }) => {
   const [input, setInput] = useState(`1-${totalPageCount}`);
-  const [error, setError] = useState('');
+  const [errorMessage, setErrorMessage] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
   
-  // Use the shared parsing logic for real-time feedback
-  const validPages = useMemo(() => 
-    parsePageInput(input, totalPageCount), 
+  // Real-time validation for preview
+  const { pages, errorKey, errorParam } = useMemo(() => 
+    validateAndParse(input, totalPageCount), 
   [input, totalPageCount]);
 
   // Auto-focus input on mount
@@ -81,18 +104,35 @@ export const PageSelectionModal: React.FC<PageSelectionModalProps> = ({
     }
   }, []);
 
-  const handleSubmit = () => {
-    if (validPages.length === 0) {
-      setError(translations.invalid);
-      return;
-    }
-    onConfirm(validPages);
+  const getLocalizedError = () => {
+      if (!errorKey) return '';
+      switch (errorKey) {
+          case 'empty': 
+             return translations.empty || "Please enter page numbers.";
+          case 'invalidChar': 
+             return (translations.invalidChar || "Invalid character: {c}").replace('{c}', String(errorParam));
+          case 'outOfRange': 
+             return (translations.outOfRange || "Page {n} out of range.").replace('{n}', String(errorParam)).replace('{t}', String(totalPageCount));
+          case 'invalid': 
+             return translations.invalid;
+          default: 
+             return translations.invalid;
+      }
   };
 
-  const formatPagePreview = (pages: number[]) => {
-    if (pages.length === 0) return '';
-    if (pages.length <= 10) return pages.join(', ');
-    return `${pages.slice(0, 10).join(', ')}, ... (+${pages.length - 10} more)`;
+  const handleSubmit = () => {
+    // If there is an existing validation error or no pages selected
+    if (errorKey || pages.length === 0) {
+      setErrorMessage(getLocalizedError() || translations.invalid);
+      return;
+    }
+    onConfirm(pages);
+  };
+
+  const formatPagePreview = (pageList: number[]) => {
+    if (pageList.length === 0) return '';
+    if (pageList.length <= 10) return pageList.join(', ');
+    return `${pageList.slice(0, 10).join(', ')}, ... (+${pageList.length - 10} more)`;
   };
 
   return (
@@ -129,7 +169,7 @@ export const PageSelectionModal: React.FC<PageSelectionModalProps> = ({
                 <p className="text-sm text-gray-600 leading-snug">{translations.desc}</p>
             </div>
             <button 
-                onClick={() => { setInput(`1-${totalPageCount}`); setError(''); inputRef.current?.focus(); }}
+                onClick={() => { setInput(`1-${totalPageCount}`); setErrorMessage(''); inputRef.current?.focus(); }}
                 className="text-xs font-bold text-primary hover:text-primary-hover underline decoration-2 underline-offset-2 mb-1"
                 type="button"
             >
@@ -143,34 +183,36 @@ export const PageSelectionModal: React.FC<PageSelectionModalProps> = ({
             ref={inputRef}
             type="text"
             value={input}
-            onChange={(e) => { setInput(e.target.value); setError(''); }}
-            className={`w-full border-2 border-black p-4 rounded-lg font-mono text-lg focus:outline-none focus:ring-4 focus:ring-primary/20 transition-all ${error ? 'bg-red-50 border-red-500' : 'bg-white'}`}
+            onChange={(e) => { setInput(e.target.value); setErrorMessage(''); }}
+            className={`w-full border-2 border-black p-4 rounded-lg font-mono text-lg focus:outline-none focus:ring-4 focus:ring-primary/20 transition-all ${errorMessage ? 'bg-red-50 border-red-500' : 'bg-white'}`}
             placeholder={translations.placeholder}
             onKeyDown={(e) => e.key === 'Enter' && handleSubmit()}
           />
 
-          {error && (
+          {errorMessage && (
             <div className="absolute top-full left-0 mt-2 flex items-center gap-1 text-red-600 text-xs font-bold animate-pulse">
               <AlertCircle size={12} />
-              <span>{error}</span>
+              <span>{errorMessage}</span>
             </div>
           )}
         </div>
 
         {/* Selected Page Preview */}
         <div className="mb-8 min-h-[1.5rem]">
-           {validPages.length > 0 ? (
+           {pages.length > 0 && !errorKey ? (
              <div className="text-xs text-gray-600">
                 <span className="flex items-center gap-1 font-bold text-green-700 mb-1">
                     <Check size={12} />
-                    {validPages.length} pages selected
+                    {pages.length} pages selected
                 </span>
                 <p className="font-mono text-gray-500 break-words leading-tight">
-                    {formatPagePreview(validPages)}
+                    {formatPagePreview(pages)}
                 </p>
              </div>
            ) : (
-             <p className="text-xs text-gray-400 italic">No valid pages selected</p>
+             <p className="text-xs text-gray-400 italic">
+                {input.trim() ? "..." : "No valid pages selected"}
+             </p>
            )}
         </div>
 
@@ -179,7 +221,7 @@ export const PageSelectionModal: React.FC<PageSelectionModalProps> = ({
              <Button variant="secondary" onClick={onCancel} size="sm">
                {translations.cancel}
              </Button>
-             <Button onClick={handleSubmit} size="sm" disabled={validPages.length === 0}>
+             <Button onClick={handleSubmit} size="sm" disabled={pages.length === 0 || !!errorKey}>
                {translations.convert}
              </Button>
         </div>

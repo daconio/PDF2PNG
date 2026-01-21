@@ -89,6 +89,10 @@ const translations = {
     modalCancel: "CANCEL",
     modalInvalid: "Invalid format. Check page numbers.",
     modalSelectAll: "Select All",
+    // New Modal Errors
+    modalEmpty: "Please enter page numbers.",
+    modalOutOfRange: "Page {n} exceeds limit ({t}).",
+    modalInvalidChar: "Invalid character: '{c}'.",
     // Tooltips
     ttClientSide: "All processing happens in your browser. No uploads.",
     ttLang: "Switch Language / 언어 변경",
@@ -164,6 +168,10 @@ const translations = {
     modalCancel: "취소",
     modalInvalid: "형식이 올바르지 않거나 페이지 범위를 벗어났습니다.",
     modalSelectAll: "전체 선택",
+    // New Modal Errors
+    modalEmpty: "페이지 번호를 입력해주세요.",
+    modalOutOfRange: "{n}페이지는 전체({t})를 초과합니다.",
+    modalInvalidChar: "잘못된 문자입니다: '{c}'.",
     // Tooltips
     ttClientSide: "모든 처리는 브라우저 내에서 이루어집니다.",
     ttLang: "언어 변경 / Switch Language",
@@ -809,7 +817,10 @@ export default function App() {
             convert: t('modalConvert'),
             cancel: t('modalCancel'),
             invalid: t('modalInvalid'),
-            selectAll: t('modalSelectAll')
+            selectAll: t('modalSelectAll'),
+            empty: t('modalEmpty'),
+            outOfRange: t('modalOutOfRange'),
+            invalidChar: t('modalInvalidChar'),
           }}
         />
       )}
