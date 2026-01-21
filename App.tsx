@@ -80,7 +80,7 @@ const translations = {
     qualityDesc: "Lower quality reduces file size (JPG only).",
     format: "Output Format",
     filename: "Output Filename",
-    filenamePlaceholder: "e.g. MyResult (saved to Downloads)",
+    filenamePlaceholder: "e.g. MyResult (renames all files)",
     // Modal
     modalTitle: "Select Pages",
     modalDesc: "Enter page numbers or ranges to extract (e.g. 1-3, 5, 8). Each selected page will be saved as a separate file.",
@@ -159,7 +159,7 @@ const translations = {
     qualityDesc: "품질을 낮추면 파일 크기가 줄어듭니다 (JPG 전용).",
     format: "출력 형식",
     filename: "파일 이름 설정",
-    filenamePlaceholder: "예: 결과물 (다운로드 폴더에 저장됨)",
+    filenamePlaceholder: "예: 결과물 (모든 파일 이름 변경)",
     // Modal
     modalTitle: "페이지 선택",
     modalDesc: "변환할 페이지 번호나 범위를 입력하세요 (예: 1-3, 5, 8). 선택한 페이지는 각각 별도의 파일로 저장됩니다.",
@@ -271,6 +271,22 @@ export default function App() {
         setQuality(0.9);
     }
   }, [mode]);
+
+  // Helper for dynamic renaming of files based on user input
+  const getEffectiveFilename = useCallback((file: GeneratedFile, index?: number) => {
+    if (!outputFilename.trim()) return file.name;
+    
+    // If index is not provided, find it
+    if (typeof index === 'undefined') {
+        index = generatedFiles.findIndex(f => f.id === file.id);
+    }
+    
+    if (index === -1) return file.name;
+    
+    const ext = file.name.split('.').pop();
+    // Rename sequentially: BaseName_1.ext, BaseName_2.ext, etc.
+    return `${outputFilename.trim()}_${index + 1}.${ext}`;
+  }, [outputFilename, generatedFiles]);
 
   // --- QUEUE PROCESSOR ---
   // Watches the queue and processes files sequentially
@@ -969,7 +985,7 @@ export default function App() {
                   </div>
                   <div className="mt-6 flex flex-col md:flex-row items-center justify-between bg-white p-4 rounded-xl border-2 border-black shadow-neo-sm gap-4">
                     <div className="truncate w-full md:w-auto">
-                      <p className="font-bold text-lg text-black truncate">{previewFile.name}</p>
+                      <p className="font-bold text-lg text-black truncate">{getEffectiveFilename(previewFile)}</p>
                       <div className="flex items-center gap-2 mt-1">
                         <span className="bg-gray-200 px-2 py-0.5 rounded text-xs font-bold border border-black">{t('size')}: {(previewFile.blob.size / 1024 / 1024).toFixed(2)} MB</span>
                       </div>
@@ -1005,7 +1021,7 @@ export default function App() {
                         </>
                       )}
                       <Tooltip content={t('ttDownload')}>
-                        <Button onClick={() => handleDownload(previewFile.url, previewFile.name)} size="sm" variant="primary">
+                        <Button onClick={() => handleDownload(previewFile.url, getEffectiveFilename(previewFile))} size="sm" variant="primary">
                           <Download size={16} /> {t('download')}
                         </Button>
                       </Tooltip>
@@ -1238,21 +1254,23 @@ export default function App() {
                             strategy={rectSortingStrategy}
                           >
                             <div className={`grid gap-3 pb-4 ${isPreviewMode ? 'grid-cols-2 sm:grid-cols-4 lg:grid-cols-6' : 'grid-cols-2'}`}>
-                              {generatedFiles.map((file) => (
+                              {generatedFiles.map((file, index) => {
+                                const effectiveName = getEffectiveFilename(file, index);
+                                return (
                                 <SortableFileCard 
                                   key={file.id} 
                                   id={file.id}
-                                  file={file}
+                                  file={{...file, name: effectiveName}}
                                   isActive={previewFile?.id === file.id}
                                   onPreview={() => { setPreviewFile(file); setEditingFile(null); }}
                                   onDelete={() => handleDelete(file.id)}
-                                  onDownload={() => handleDownload(file.url, file.name)}
+                                  onDownload={() => handleDownload(file.url, effectiveName)}
                                   translations={{
                                     delete: t('ttDelete'),
                                     download: t('ttDownload')
                                   }}
                                 />
-                              ))}
+                              )})}
                               
                               {/* Inline Add Button inside grid */}
                               <div 
