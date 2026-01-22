@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { Layout, Images, FileText, CheckCircle, ArrowRight, Download, Github, FileArchive, X, Eye, Pencil, FileStack, Globe, Cog, Crop, RotateCw, SlidersHorizontal, Files, Layers, Plus, UploadCloud, Scissors, ChevronDown, ChevronUp, Clock, AlertCircle, FileType, FolderOutput } from 'lucide-react';
+import { Images, FileText, CheckCircle, ArrowRight, Download, Github, FileArchive, X, Eye, Pencil, FileStack, Globe, Cog, Crop, RotateCw, SlidersHorizontal, Files, Layers, Plus, UploadCloud, Scissors, ChevronDown, ChevronUp, Clock, AlertCircle, FileType, FolderOutput } from 'lucide-react';
 import { useDropzone, Accept } from 'react-dropzone';
 import { 
   DndContext, 
@@ -845,8 +845,8 @@ export default function App() {
       <nav className="bg-white border-b-2 border-black sticky top-0 z-40 shadow-neo-sm">
         <div className="max-w-7xl mx-auto px-6 h-18 py-4 flex justify-between items-center">
           <div className="flex items-center gap-3">
-            <div className="bg-primary border-2 border-black p-2 shadow-neo-sm rounded-lg">
-              <Layout size={24} className="text-white" />
+            <div className="w-10 h-10 bg-primary border-2 border-black shadow-neo-sm rounded-lg flex items-center justify-center">
+               <span className="text-white font-black text-2xl font-sans leading-none pt-0.5">D</span>
             </div>
             <span className="text-2xl font-black tracking-tighter text-black uppercase">ParsePDF</span>
           </div>
