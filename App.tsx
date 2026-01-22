@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { Images, FileText, CheckCircle, ArrowRight, Download, Github, FileArchive, X, Eye, Pencil, FileStack, Globe, Cog, Crop, RotateCw, SlidersHorizontal, Files, Layers, Plus, UploadCloud, Scissors, ChevronDown, ChevronUp, Clock, AlertCircle, FileType, FolderOutput } from 'lucide-react';
+import { Layout, Images, FileText, CheckCircle, ArrowRight, Download, Github, FileArchive, X, Eye, Pencil, FileStack, Globe, Cog, Crop, RotateCw, SlidersHorizontal, Files, Layers, Plus, UploadCloud, Scissors, ChevronDown, ChevronUp, Clock, AlertCircle, FileType, FolderOutput, FolderDown } from 'lucide-react';
 import { useDropzone, Accept } from 'react-dropzone';
 import { 
   DndContext, 
@@ -28,10 +28,28 @@ import { ImageEditor, ToolMode } from './components/ImageEditor';
 import { PageSelectionModal } from './components/PageSelectionModal';
 import { SortableFileCard, FileCardOverlay } from './components/SortableFileCard';
 import { Tooltip } from './components/Tooltip';
+import { Toast, ToastType } from './components/Toast';
 import JSZip from 'jszip';
 
 type Language = 'ko' | 'en';
 type OutputFormat = 'png' | 'jpg';
+
+// Polyfill for File System Access API types
+declare global {
+    interface Window {
+        showDirectoryPicker?: () => Promise<FileSystemDirectoryHandle>;
+    }
+    interface FileSystemDirectoryHandle {
+        getFileHandle(name: string, options?: { create?: boolean }): Promise<FileSystemFileHandle>;
+    }
+    interface FileSystemFileHandle {
+        createWritable(): Promise<FileSystemWritableFileStream>;
+    }
+    interface FileSystemWritableFileStream {
+        write(data: any): Promise<void>;
+        close(): Promise<void>;
+    }
+}
 
 const translations = {
   en: {
@@ -54,6 +72,7 @@ const translations = {
     mergeBack: "MERGE TO PDF",
     flattenMerge: "FLATTEN & MERGE",
     downloadZip: "DOWNLOAD ZIP",
+    saveToFolder: "SAVE TO FOLDER",
     closePreview: "CLOSE",
     size: "Size",
     clientSide: "CLIENT-SIDE",
@@ -89,11 +108,10 @@ const translations = {
     modalCancel: "CANCEL",
     modalInvalid: "Invalid format. Check page numbers.",
     modalSelectAll: "Select All",
-    // New Modal Errors
     modalEmpty: "Please enter page numbers.",
     modalOutOfRange: "Page {n} exceeds limit ({t}).",
     modalInvalidChar: "Invalid character: '{c}'.",
-    // Tooltips
+    // Tooltips & Toasts
     ttClientSide: "All processing happens in your browser. No uploads.",
     ttLang: "Switch Language / 언어 변경",
     ttGithub: "View Source Code",
@@ -111,7 +129,12 @@ const translations = {
     ttEdit: "Open drawing editor",
     ttClose: "Close preview",
     ttDownloadZip: "Download all files as ZIP",
-    ttMergeAction: "Process and Download PDF"
+    ttSaveToFolder: "Save all files to a specific folder (Chrome/Edge)",
+    ttMergeAction: "Process and Download PDF",
+    toastDlStarted: "Download started. Check your downloads folder.",
+    toastSaveSuccess: "All files saved successfully!",
+    toastSaveError: "Failed to save files.",
+    toastSaveStart: "Saving files to selected folder..."
   },
   ko: {
     heroTag: "클라우드 X • 개인정보 보호",
@@ -133,6 +156,7 @@ const translations = {
     mergeBack: "PDF로 합치기",
     flattenMerge: "평탄화 및 합치기",
     downloadZip: "ZIP 다운로드",
+    saveToFolder: "폴더에 저장",
     closePreview: "닫기",
     size: "크기",
     clientSide: "클라이언트 전용",
@@ -168,11 +192,10 @@ const translations = {
     modalCancel: "취소",
     modalInvalid: "형식이 올바르지 않거나 페이지 범위를 벗어났습니다.",
     modalSelectAll: "전체 선택",
-    // New Modal Errors
     modalEmpty: "페이지 번호를 입력해주세요.",
     modalOutOfRange: "{n}페이지는 전체({t})를 초과합니다.",
     modalInvalidChar: "잘못된 문자입니다: '{c}'.",
-    // Tooltips
+    // Tooltips & Toasts
     ttClientSide: "모든 처리는 브라우저 내에서 이루어집니다.",
     ttLang: "언어 변경 / Switch Language",
     ttGithub: "소스 코드 보기",
@@ -190,7 +213,12 @@ const translations = {
     ttEdit: "그리기 에디터 열기",
     ttClose: "미리보기 닫기",
     ttDownloadZip: "모든 파일 ZIP 다운로드",
-    ttMergeAction: "처리 및 PDF 다운로드"
+    ttSaveToFolder: "특정 폴더를 선택하여 모든 파일 저장 (Chrome/Edge)",
+    ttMergeAction: "처리 및 PDF 다운로드",
+    toastDlStarted: "다운로드가 시작되었습니다. 다운로드 폴더를 확인하세요.",
+    toastSaveSuccess: "모든 파일이 성공적으로 저장되었습니다!",
+    toastSaveError: "파일 저장에 실패했습니다.",
+    toastSaveStart: "선택한 폴더에 파일을 저장하는 중..."
   }
 };
 
@@ -199,6 +227,12 @@ interface GeneratedFile {
   name: string;
   url: string;
   blob: Blob;
+}
+
+interface ToastMessage {
+  id: string;
+  message: string;
+  type: ToastType;
 }
 
 export default function App() {
@@ -217,6 +251,7 @@ export default function App() {
   const [quality, setQuality] = useState(0.9);
   const [outputFormat, setOutputFormat] = useState<OutputFormat>('png');
   const [outputFilename, setOutputFilename] = useState('');
+  const [toasts, setToasts] = useState<ToastMessage[]>([]);
   
   // Collapsed state for Results panel
   const [isResultsCollapsed, setIsResultsCollapsed] = useState(false);
@@ -287,6 +322,15 @@ export default function App() {
     // Rename sequentially: BaseName_1.ext, BaseName_2.ext, etc.
     return `${outputFilename.trim()}_${index + 1}.${ext}`;
   }, [outputFilename, generatedFiles]);
+
+  const addToast = (message: string, type: ToastType = 'info') => {
+    const id = Math.random().toString(36).substr(2, 9);
+    setToasts(prev => [...prev, { id, message, type }]);
+  };
+
+  const removeToast = (id: string) => {
+    setToasts(prev => prev.filter(t => t.id !== id));
+  };
 
   // --- QUEUE PROCESSOR ---
   // Watches the queue and processes files sequentially
@@ -654,6 +698,37 @@ export default function App() {
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
+    addToast(t('toastDlStarted'), 'success');
+  };
+
+  const handleSaveToFolder = async () => {
+    if (!window.showDirectoryPicker) {
+        addToast("Your browser does not support folder saving. Please use 'Download ZIP' instead.", 'error');
+        return;
+    }
+    
+    try {
+      // @ts-ignore
+      const dirHandle = await window.showDirectoryPicker();
+      addToast(t('toastSaveStart'), 'info');
+      
+      for (let i = 0; i < generatedFiles.length; i++) {
+        const file = generatedFiles[i];
+        const effectiveName = getEffectiveFilename(file, i);
+        // @ts-ignore
+        const fileHandle = await dirHandle.getFileHandle(effectiveName, { create: true });
+        // @ts-ignore
+        const writable = await fileHandle.createWritable();
+        await writable.write(file.blob);
+        await writable.close();
+      }
+      addToast(t('toastSaveSuccess'), 'success');
+    } catch (err) {
+      console.error(err);
+      if ((err as Error).name !== 'AbortError') {
+          addToast(t('toastSaveError'), 'error');
+      }
+    }
   };
 
   const handleDownloadZip = async () => {
@@ -803,6 +878,13 @@ export default function App() {
 
   return (
     <div className="flex flex-col min-h-screen bg-background font-sans text-black selection:bg-primary selection:text-black">
+      {/* Toast Container */}
+      <div className="fixed bottom-6 right-6 z-50 flex flex-col gap-2 pointer-events-none">
+        {toasts.map(toast => (
+            <Toast key={toast.id} id={toast.id} message={toast.message} type={toast.type} onClose={removeToast} />
+        ))}
+      </div>
+
       {/* Hidden input for Add More functionality */}
       <input 
         type="file" 
@@ -845,8 +927,8 @@ export default function App() {
       <nav className="bg-white border-b-2 border-black sticky top-0 z-40 shadow-neo-sm">
         <div className="max-w-7xl mx-auto px-6 h-18 py-4 flex justify-between items-center">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-primary border-2 border-black shadow-neo-sm rounded-lg flex items-center justify-center">
-               <span className="text-white font-black text-2xl font-sans leading-none pt-0.5">D</span>
+            <div className="bg-primary border-2 border-black p-2 shadow-neo-sm rounded-lg">
+              <Layout size={24} className="text-white" />
             </div>
             <span className="text-2xl font-black tracking-tighter text-black uppercase">ParsePDF</span>
           </div>
@@ -1231,13 +1313,24 @@ export default function App() {
                             </Button>
                           </Tooltip>
                         ) : (
-                          // For PDF_TO_PNG and SPLIT_PDF, we just offer ZIP download as we process immediately
-                          <Tooltip content={t('ttDownloadZip')} position="bottom">
-                            <Button onClick={handleDownloadZip} className="w-full justify-between group bg-black text-white hover:bg-gray-800" size="sm">
-                              <span className="flex items-center gap-2"><FileArchive size={16} /> {t('downloadZip')}</span>
-                              <ArrowRight size={14} className="group-hover:translate-x-1 transition-transform" />
-                            </Button>
-                          </Tooltip>
+                          // For PDF_TO_PNG and SPLIT_PDF, we offer ZIP download and Folder Save
+                          <div className="flex gap-2">
+                            <Tooltip content={t('ttDownloadZip')} position="bottom">
+                              <Button onClick={handleDownloadZip} className="flex-1 justify-between group bg-black text-white hover:bg-gray-800" size="sm">
+                                <span className="flex items-center gap-2"><FileArchive size={16} /> ZIP</span>
+                                <ArrowRight size={14} className="group-hover:translate-x-1 transition-transform" />
+                              </Button>
+                            </Tooltip>
+                            {/* Save to Folder (Conditional or always shown with fallback in handler) */}
+                            {!!window.showDirectoryPicker && (
+                              <Tooltip content={t('ttSaveToFolder')} position="bottom">
+                                <Button onClick={handleSaveToFolder} className="flex-1 justify-between group" variant="secondary" size="sm">
+                                  <span className="flex items-center gap-2"><FolderDown size={16} /> {t('saveToFolder')}</span>
+                                  <ArrowRight size={14} className="group-hover:translate-x-1 transition-transform" />
+                                </Button>
+                              </Tooltip>
+                            )}
+                          </div>
                         )}
                       </div>
 

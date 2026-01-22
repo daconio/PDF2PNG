@@ -3,12 +3,10 @@ import {
   X, Save, Undo, Redo, Eraser, Type, Minus, Plus, 
   Crop, RotateCw, SlidersHorizontal, Check, MousePointer2, 
   Pen, Square, Circle as CircleIcon, Slash, ArrowRight,
-  AlignLeft, AlignCenter, AlignRight, Pipette, Triangle, PaintBucket,
-  AlertTriangle, RefreshCw, Cloud, Trash2
+  AlignLeft, AlignCenter, AlignRight, Pipette, Triangle, PaintBucket
 } from 'lucide-react';
 import { Button } from './Button';
 import { Tooltip } from './Tooltip';
-import { saveDraft, getDraft, clearDraft } from '../services/storageService';
 
 export type ToolMode = 'draw' | 'crop' | 'adjust';
 
@@ -76,10 +74,6 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ file, onSave, onClose,
   const [brightness, setBrightness] = useState(100);
   const [contrast, setContrast] = useState(100);
 
-  // Auto-save State
-  const [draftTimestamp, setDraftTimestamp] = useState<number | null>(null);
-  const [isAutoSaving, setIsAutoSaving] = useState(false);
-
   // Initialize Canvas
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -112,68 +106,8 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ file, onSave, onClose,
       const initialData = context.getImageData(0, 0, canvas.width, canvas.height);
       setHistory([initialData]);
       setHistoryStep(0);
-      
-      // Check for drafts after initialization
-      checkForDraft();
     };
   }, [file.url]);
-
-  const checkForDraft = async () => {
-    const draft = await getDraft(file.name);
-    if (draft) {
-      setDraftTimestamp(draft.timestamp);
-    }
-  };
-
-  const handleRestoreDraft = async () => {
-    const draft = await getDraft(file.name);
-    if (!draft || !ctx || !canvasRef.current) return;
-
-    const img = new Image();
-    img.src = URL.createObjectURL(draft.blob);
-    img.onload = () => {
-      canvasRef.current!.width = img.width;
-      canvasRef.current!.height = img.height;
-      if (tempCanvasRef.current) {
-        tempCanvasRef.current.width = img.width;
-        tempCanvasRef.current.height = img.height;
-      }
-      ctx.clearRect(0, 0, img.width, img.height);
-      ctx.drawImage(img, 0, 0);
-      
-      const newData = ctx.getImageData(0, 0, img.width, img.height);
-      // Reset history to the draft state
-      setHistory([newData]);
-      setHistoryStep(0);
-      
-      setDraftTimestamp(null);
-      URL.revokeObjectURL(img.src);
-    };
-  };
-
-  const handleDiscardDraft = async () => {
-    await clearDraft(file.name);
-    setDraftTimestamp(null);
-  };
-
-  // Auto-save Effect
-  useEffect(() => {
-    if (historyStep < 0) return; // Don't auto-save before init
-    
-    const timer = setTimeout(async () => {
-      if (canvasRef.current) {
-        setIsAutoSaving(true);
-        canvasRef.current.toBlob(async (blob) => {
-          if (blob) {
-            await saveDraft(file.name, blob);
-          }
-          setIsAutoSaving(false);
-        });
-      }
-    }, 2000); // Save after 2s of inactivity
-
-    return () => clearTimeout(timer);
-  }, [historyStep, file.name]);
 
   // Focus input when it appears
   useEffect(() => {
@@ -587,11 +521,8 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ file, onSave, onClose,
     setMode('draw');
   };
 
-  const handleSave = async () => {
+  const handleSave = () => {
     if (!canvasRef.current) return;
-    
-    // Clear draft on manual save as the work is now "committed"
-    await clearDraft(file.name);
     
     if (mode === 'adjust' && (brightness !== 100 || contrast !== 100)) {
         const canvas = canvasRef.current;
@@ -622,29 +553,9 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ file, onSave, onClose,
   };
 
   return (
-    <div className="flex flex-col w-full h-full bg-white overflow-hidden animate-in fade-in duration-200 relative">
-        {/* Draft Restore Banner */}
-        {draftTimestamp && (
-          <div className="absolute top-0 left-0 right-0 z-50 bg-[#ffcc00] border-b-2 border-black p-2 flex items-center justify-between shadow-lg animate-in slide-in-from-top duration-300">
-             <div className="flex items-center gap-2 px-2">
-                <AlertTriangle size={18} className="text-black" />
-                <span className="text-sm font-bold text-black">
-                   Unsaved changes found from {new Date(draftTimestamp).toLocaleTimeString()}
-                </span>
-             </div>
-             <div className="flex gap-2">
-                <Button size="sm" onClick={handleRestoreDraft} className="h-7 text-xs bg-black text-white border-black hover:bg-gray-800">
-                   <RefreshCw size={12} className="mr-1" /> Restore
-                </Button>
-                <Button size="sm" variant="outline" onClick={handleDiscardDraft} className="h-7 text-xs bg-white/50 border-black hover:bg-white/80">
-                   <Trash2 size={12} className="mr-1" /> Discard
-                </Button>
-             </div>
-          </div>
-        )}
-
+    <div className="flex flex-col w-full h-full bg-white overflow-hidden animate-in fade-in duration-200">
         {/* Header / Toolbar */}
-        <div className="bg-gray-50 border-b-2 border-black p-4 flex flex-wrap items-center justify-between gap-4 shrink-0 mt-0">
+        <div className="bg-gray-50 border-b-2 border-black p-4 flex flex-wrap items-center justify-between gap-4 shrink-0">
           <div className="flex flex-wrap items-center gap-2 md:gap-4">
             {/* Main Tools */}
             <div className="flex bg-white rounded-lg border border-black shadow-sm overflow-hidden scale-90 md:scale-100 origin-left">
@@ -796,18 +707,13 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ file, onSave, onClose,
                  </div>
             )}
 
-            <div className="flex gap-1 items-center">
+            <div className="flex gap-1">
                 <Tooltip content="Undo">
                     <Button size="sm" variant="secondary" onClick={handleUndo} disabled={historyStep <= 0} className="hidden sm:flex"><Undo size={18} /></Button>
                 </Tooltip>
                 <Tooltip content="Redo">
                     <Button size="sm" variant="secondary" onClick={handleRedo} disabled={historyStep >= history.length - 1} className="hidden sm:flex"><Redo size={18} /></Button>
                 </Tooltip>
-                {isAutoSaving && (
-                  <div className="flex items-center gap-1 ml-2 text-[10px] text-gray-500 font-bold uppercase animate-pulse">
-                     <Cloud size={12} /> Saving...
-                  </div>
-                )}
             </div>
           </div>
 
