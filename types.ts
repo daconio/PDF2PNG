@@ -6,6 +6,7 @@ export enum ConversionMode {
   MERGE_PDF = 'MERGE_PDF',
   FLATTEN_PDF = 'FLATTEN_PDF',
   SPLIT_PDF = 'SPLIT_PDF',
+  PDF_TO_PPTX = 'PDF_TO_PPTX',
 }
 
 export enum ProcessStatus {
@@ -25,6 +26,7 @@ export interface FileItem {
   outputFiles?: Blob[]; // For PDF to PNG
   outputPdf?: Blob;     // For PNG to PDF
   errorMessage?: string;
+  estimatedRemaining?: number; // Seconds remaining
 }
 
 export interface PipelineStep {
