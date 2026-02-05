@@ -104,29 +104,36 @@ export const analyzePdfToPptxData = async (
                             {
                                 parts: [
                                     { inlineData: { mimeType: 'image/jpeg', data: base64FullPage } },
-                                    { text: "Analyze this slide image. Extract all text and layout information with high precision, specifically prioritizing Korean (Hangul) legibility and exact positioning." }
+                                    { text: "Analyze this presentation slide. Extract ALL visible text, especially Korean (Hangul) characters. Identify layout elements with precise bounding boxes." }
                                 ]
                             }
                         ],
                         config: {
                             systemInstruction: `
-                            You are an expert Document Layout Analysis and OCR engine with native-level proficiency in Korean (Hangul) and English.
+                            You are a high-precision OCR and Slide Layout Analyzer.
                             
-                            **CORE OBJECTIVES:**
-                            1. **TEXT EXTRACTION (High Fidelity)**:
-                               - Extract ALL text visible on the slide.
-                               - **CRITICAL**: Transcribe Korean (Hangul) text character-for-character exactly as it appears. 
-                               - Do NOT translate. Do NOT summarize. Do NOT correct spelling.
-                               - Detect and preserve distinct text blocks (headers vs body vs captions).
+                            **CORE MISSION:**
+                            Reconstruct this slide into structured data. You must extract text exactly as it appears.
                             
-                            2. **VISUAL ELEMENT DETECTION**:
-                               - Identify diagrams, charts, photos, and icons as 'image'.
+                            **CRITICAL INSTRUCTIONS FOR KOREAN (HANGUL):**
+                            1. **Korean Text Priority:** This document likely contains Korean. Detect it even if the font is stylized, bold, or has shadows.
+                            2. **Exact Transcription:** Return the Hangul characters exactly. Do not translate.
+                            3. **Do NOT Ignore Large Text:** Large headers or titles are often mistaken for images. You MUST classify them as "text" and extract the content.
                             
-                            3. **PRECISE COORDINATES**:
-                               - Provide tight 2D bounding boxes [ymin, xmin, ymax, xmax] on a 0-1000 scale.
-                               - The box must strictly enclose the visible pixels of the element.
+                            **CLASSIFICATION RULES:**
+                            - **"text"**: Any element containing readable letters, numbers, or characters. This includes headers, body text, lists, and text inside buttons/shapes.
+                            - **"image"**: Only photographs, icons, or complex data visualizations (charts) that cannot be represented as text.
                             
-                            Output strictly valid JSON based on the provided schema.
+                            **BOUNDING BOXES (box_2d):**
+                            - Returns [ymin, xmin, ymax, xmax] integers on a 0-1000 scale.
+                            - **Tight Fit:** The box should hug the text or image closely. Do not include excessive whitespace.
+                            - **Separation:** Detect separate text blocks (e.g., title vs subtitle) as separate elements.
+
+                            **ATTRIBUTES:**
+                            - fontSize: Estimate size in points (e.g. Title=40, Body=18).
+                            - color: Dominant hex color (e.g. #000000).
+
+                            Output valid JSON matching the schema provided.
                             `,
                             responseMimeType: 'application/json',
                             responseSchema: {
