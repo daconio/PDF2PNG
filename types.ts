@@ -13,6 +13,8 @@ export enum ProcessStatus {
   IDLE = 'IDLE',
   QUEUED = 'QUEUED',
   PROCESSING = 'PROCESSING',
+  ANALYZING_PPTX = 'ANALYZING_PPTX', // New status for AI analysis phase
+  EDITING_PPTX = 'EDITING_PPTX',     // New status for Editor phase
   COMPLETED = 'COMPLETED',
   ERROR = 'ERROR',
 }
@@ -34,4 +36,32 @@ export interface PipelineStep {
   label: string;
   icon: React.ElementType;
   status: 'pending' | 'active' | 'completed';
+}
+
+// New Types for PPTX Editor
+export interface PptxElement {
+  id: string;
+  type: 'text' | 'image';
+  content?: string; // for text
+  image?: string; // base64 for image element
+  x: number; // percentage 0-100 relative to slide width
+  y: number; // percentage 0-100 relative to slide height
+  w: number; // percentage 0-100
+  h: number; // percentage 0-100
+  style?: {
+    fontSize?: number; // approx pt
+    color?: string; // hex
+    bg?: string; // hex
+    isBold?: boolean;
+    align?: 'left' | 'center' | 'right';
+  };
+}
+
+export interface PptxSlide {
+  id: string;
+  pageNumber: number;
+  backgroundImage: string; // base64 (The original full page)
+  elements: PptxElement[];
+  width: number; // points
+  height: number; // points
 }
