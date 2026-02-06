@@ -16,12 +16,53 @@ const sanitizeText = (str: string): string => {
     return str.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F-\x9F]/g, "");
 };
 
+// Robust JSON parser for AI responses
+const parseGeminiJson = (text: string | undefined): any => {
+    if (!text) return { elements: [] };
+    
+    try {
+        // 1. Clean markdown code blocks
+        let clean = text.replace(/```json/gi, '').replace(/```/g, '').trim();
+        
+        // 2. Locate the outermost JSON object using a stack-based approach or simple indexOf
+        const firstBrace = clean.indexOf('{');
+        const lastBrace = clean.lastIndexOf('}');
+        
+        if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
+            clean = clean.substring(firstBrace, lastBrace + 1);
+        } else {
+             // Fallback: if no braces found, usually garbage
+             console.warn("No JSON braces found in response");
+             return { elements: [] };
+        }
+
+        return JSON.parse(clean);
+    } catch (e) {
+        console.error("JSON Parse failed. Raw text:", text);
+        return { elements: [] };
+    }
+};
+
 // Helper to enforce timeout on promises
 const withTimeout = <T>(promise: Promise<T>, ms: number): Promise<T> => {
     return Promise.race([
         promise,
         new Promise<T>((_, reject) => setTimeout(() => reject(new Error(`Timeout after ${ms}ms`)), ms))
     ]);
+};
+
+// Retry helper
+const retryOperation = async <T>(operation: () => Promise<T>, retries: number = 1): Promise<T> => {
+    try {
+        return await operation();
+    } catch (error) {
+        if (retries > 0) {
+            console.warn(`Operation failed, retrying... (${retries} left)`);
+            await new Promise(r => setTimeout(r, 1000));
+            return retryOperation(operation, retries - 1);
+        }
+        throw error;
+    }
 };
 
 // Helper to crop image from canvas
@@ -97,70 +138,77 @@ export const analyzePdfToPptxData = async (
 
             if (isAiEnabled) {
                 try {
-                    // Optimized prompt for strict text extraction with Korean support
-                    const response = await withTimeout<GenerateContentResponse>(ai.models.generateContent({
-                        model: 'gemini-3-flash-preview',
-                        contents: [
-                            {
-                                parts: [
-                                    { inlineData: { mimeType: 'image/jpeg', data: base64FullPage } },
-                                    { text: "Analyze this presentation slide. Extract ALL visible text, especially Korean (Hangul) characters. Identify layout elements with precise bounding boxes." }
-                                ]
-                            }
-                        ],
-                        config: {
-                            systemInstruction: `
-                            You are a high-precision OCR and Slide Layout Analyzer.
-                            
-                            **CORE MISSION:**
-                            Reconstruct this slide into structured data. You must extract text exactly as it appears.
-                            
-                            **CRITICAL INSTRUCTIONS FOR KOREAN (HANGUL):**
-                            1. **Korean Text Priority:** This document likely contains Korean. Detect it even if the font is stylized, bold, or has shadows.
-                            2. **Exact Transcription:** Return the Hangul characters exactly. Do not translate.
-                            3. **Do NOT Ignore Large Text:** Large headers or titles are often mistaken for images. You MUST classify them as "text" and extract the content.
-                            
-                            **CLASSIFICATION RULES:**
-                            - **"text"**: Any element containing readable letters, numbers, or characters. This includes headers, body text, lists, and text inside buttons/shapes.
-                            - **"image"**: Only photographs, icons, or complex data visualizations (charts) that cannot be represented as text.
-                            
-                            **BOUNDING BOXES (box_2d):**
-                            - Returns [ymin, xmin, ymax, xmax] integers on a 0-1000 scale.
-                            - **Tight Fit:** The box should hug the text or image closely. Do not include excessive whitespace.
-                            - **Separation:** Detect separate text blocks (e.g., title vs subtitle) as separate elements.
+                    // Retry-wrapped AI call
+                    const response = await retryOperation(async () => {
+                        return await withTimeout<GenerateContentResponse>(ai.models.generateContent({
+                            model: 'gemini-3-flash-preview',
+                            contents: [
+                                {
+                                    parts: [
+                                        { inlineData: { mimeType: 'image/jpeg', data: base64FullPage } },
+                                        { text: "Analyze this presentation slide. Extract ALL visible text, especially Korean (Hangul) characters. Identify layout elements with precise bounding boxes." }
+                                    ]
+                                }
+                            ],
+                            config: {
+                                systemInstruction: `
+                                You are a high-precision OCR and Slide Layout Analyzer.
+                                
+                                **CORE MISSION:**
+                                Reconstruct this slide into structured data. Extract text exactly as it appears.
+                                
+                                **CRITICAL INSTRUCTIONS FOR KOREAN (HANGUL):**
+                                1. **Korean Text Priority:** Detect Korean even if the font is stylized, bold, or has shadows.
+                                2. **Exact Transcription:** Return the Hangul characters exactly. Do not translate.
+                                3. **Headers:** Do NOT Ignore Large Text.
+                                
+                                **BOUNDING BOXES (box_2d):**
+                                - Returns [ymin, xmin, ymax, xmax] integers on a 0-1000 scale.
+                                - **Tight Fit:** The box should hug the text or image closely.
+                                
+                                **ATTRIBUTES:**
+                                - fontSize: Estimate size in points.
+                                - color: Hex color (e.g. #000000).
+                                - backgroundColor: Background color BEHIND the text (e.g. #FFFFFF or #88AAEE).
 
-                            **ATTRIBUTES:**
-                            - fontSize: Estimate size in points (e.g. Title=40, Body=18).
-                            - color: Dominant hex color (e.g. #000000).
-
-                            Output valid JSON matching the schema provided.
-                            `,
-                            responseMimeType: 'application/json',
-                            responseSchema: {
-                                type: Type.OBJECT,
-                                properties: {
-                                    elements: {
-                                        type: Type.ARRAY,
-                                        items: {
-                                            type: Type.OBJECT,
-                                            properties: {
-                                                type: { type: Type.STRING, enum: ["text", "image"] },
-                                                content: { type: Type.STRING },
-                                                box_2d: { 
-                                                    type: Type.ARRAY,
-                                                    items: { type: Type.NUMBER }
-                                                },
-                                                fontSize: { type: Type.NUMBER, description: "Estimated font size in points (e.g. 12, 24)" },
-                                                color: { type: Type.STRING, description: "Hex color code e.g. #000000" }
+                                Output valid JSON only.
+                                `,
+                                // Disable strict safety filters to prevent false positives on document text
+                                safetySettings: [
+                                    { category: 'HARM_CATEGORY_HARASSMENT', threshold: 'BLOCK_NONE' },
+                                    { category: 'HARM_CATEGORY_HATE_SPEECH', threshold: 'BLOCK_NONE' },
+                                    { category: 'HARM_CATEGORY_SEXUALLY_EXPLICIT', threshold: 'BLOCK_NONE' },
+                                    { category: 'HARM_CATEGORY_DANGEROUS_CONTENT', threshold: 'BLOCK_NONE' },
+                                ] as any, 
+                                responseMimeType: 'application/json',
+                                responseSchema: {
+                                    type: Type.OBJECT,
+                                    properties: {
+                                        elements: {
+                                            type: Type.ARRAY,
+                                            items: {
+                                                type: Type.OBJECT,
+                                                properties: {
+                                                    type: { type: Type.STRING, enum: ["text", "image"] },
+                                                    content: { type: Type.STRING },
+                                                    box_2d: { 
+                                                        type: Type.ARRAY,
+                                                        items: { type: Type.NUMBER }
+                                                    },
+                                                    fontSize: { type: Type.NUMBER },
+                                                    color: { type: Type.STRING },
+                                                    backgroundColor: { type: Type.STRING }
+                                                }
                                             }
                                         }
                                     }
                                 }
                             }
-                        }
-                    }), 45000);
+                        }), 60000); // Increased timeout to 60s
+                    }, 1); // 1 Retry
 
-                    const data = JSON.parse(response.text || '{"elements":[]}');
+                    // Robust parsing
+                    const data = parseGeminiJson(response.text);
                     
                     data.elements?.forEach((el: any, idx: number) => {
                         const [ymin, xmin, ymax, xmax] = el.box_2d || [0,0,0,0];
@@ -198,6 +246,7 @@ export const analyzePdfToPptxData = async (
                                 style: {
                                     fontSize: el.fontSize || 12,
                                     color: el.color || '#000000',
+                                    bgColor: el.backgroundColor || '#ffffff',
                                     align: 'left' // Default to left
                                 }
                             });
@@ -286,11 +335,15 @@ export const generatePptxFromData = async (
                     x: x, y: y, w: w, h: h
                 });
             } else if (el.type === 'text' && el.content) {
+                const fillProps = el.style?.bgColor 
+                    ? { color: el.style.bgColor.replace('#', '') } 
+                    : { color: 'FFFFFF' };
+
                 slide.addText(el.content, {
                     x: x, y: y, w: w, h: Math.max(h, 0.3),
                     fontSize: el.style?.fontSize || 12,
                     color: el.style?.color?.replace('#', '') || '000000',
-                    fill: { color: 'FFFFFF' }, // Text box needs white background to cover original text
+                    fill: fillProps, 
                     align: el.style?.align || 'left',
                     fontFace: 'Arial',
                     valign: 'top'

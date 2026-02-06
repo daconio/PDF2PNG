@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { PptxSlide, PptxElement } from '../types';
 import { Button } from './Button';
-import { Download, ChevronLeft, ChevronRight, Save, Type, Image as ImageIcon, Eye, EyeOff, Loader2 } from 'lucide-react';
+import { Download, ChevronLeft, ChevronRight, Eye, EyeOff, Loader2, Save } from 'lucide-react';
 
 interface PptxEditorProps {
   slides: PptxSlide[];
@@ -14,13 +14,13 @@ export const PptxEditor: React.FC<PptxEditorProps> = ({ slides, totalFiles, onDo
   const [currentSlideIndex, setCurrentSlideIndex] = useState(0);
   const [editedSlides, setEditedSlides] = useState<PptxSlide[]>(JSON.parse(JSON.stringify(slides)));
   const [selectedElementId, setSelectedElementId] = useState<string | null>(null);
-  const [dimBackground, setDimBackground] = useState(false);
+  const [showOverlays, setShowOverlays] = useState(true); // Default to true so users see extracted text
   const scrollRef = useRef<HTMLDivElement>(null);
 
   // Sync prop 'slides' to state 'editedSlides' when new slides stream in
   useEffect(() => {
     if (slides.length > editedSlides.length) {
-        // Only append the new slides
+        // Only append the new slides, deeply cloning them to avoid reference issues
         const newSlides = slides.slice(editedSlides.length);
         setEditedSlides(prev => [...prev, ...JSON.parse(JSON.stringify(newSlides))]);
     }
@@ -52,12 +52,22 @@ export const PptxEditor: React.FC<PptxEditorProps> = ({ slides, totalFiles, onDo
 
   const updateElement = (id: string, updates: Partial<PptxElement>) => {
     setEditedSlides(prev => {
+      // Create a deep copy of the structure we are modifying to ensure React detects state changes
       const newSlides = [...prev];
-      const slide = newSlides[currentSlideIndex];
-      const elIndex = slide.elements.findIndex(e => e.id === id);
+      const slideIndex = currentSlideIndex;
+      
+      if (!newSlides[slideIndex]) return prev;
+
+      const slide = { ...newSlides[slideIndex] };
+      const elements = [...slide.elements];
+      
+      const elIndex = elements.findIndex(e => e.id === id);
       if (elIndex !== -1) {
-        slide.elements[elIndex] = { ...slide.elements[elIndex], ...updates };
+        elements[elIndex] = { ...elements[elIndex], ...updates };
+        slide.elements = elements;
+        newSlides[slideIndex] = slide;
       }
+      
       return newSlides;
     });
   };
@@ -65,8 +75,9 @@ export const PptxEditor: React.FC<PptxEditorProps> = ({ slides, totalFiles, onDo
   const handleDelete = (id: string) => {
     setEditedSlides(prev => {
         const newSlides = [...prev];
-        const slide = newSlides[currentSlideIndex];
+        const slide = { ...newSlides[currentSlideIndex] };
         slide.elements = slide.elements.filter(e => e.id !== id);
+        newSlides[currentSlideIndex] = slide;
         return newSlides;
     });
     setSelectedElementId(null);
@@ -83,6 +94,26 @@ export const PptxEditor: React.FC<PptxEditorProps> = ({ slides, totalFiles, onDo
       );
   }
 
+  // Helper to calculate font size
+  const getFontSize = (el: PptxElement) => {
+      // Calculate visual height of the box in pixels
+      const boxHeightPx = (el.h / 100) * slideDimensions.height;
+      
+      // AI estimate (pt) converted to screen px (approx)
+      // We scale it based on the current view ratio vs original PDF
+      const scaleFactor = slideDimensions.width / currentSlide.width;
+      const aiFontSizePx = (el.style?.fontSize || 12) * scaleFactor * 1.5; // Multiplier for readability
+
+      // Heuristic: Font size shouldn't exceed the box height usually, but shouldn't be microscopic
+      // We prioritize the box height if the AI guess seems wildly off
+      const fitSize = boxHeightPx * 0.75; // 75% of box height
+
+      // Return valid pixel string. Use fitSize if AI size is missing or too small/large
+      if (!aiFontSizePx || aiFontSizePx < 8) return `${Math.max(10, fitSize)}px`;
+      
+      return `${Math.max(10, aiFontSizePx)}px`;
+  };
+
   return (
     <div className="flex flex-col h-screen bg-gray-100 absolute inset-0 z-50 animate-in fade-in duration-300">
       {/* Header */}
@@ -92,13 +123,14 @@ export const PptxEditor: React.FC<PptxEditorProps> = ({ slides, totalFiles, onDo
           <span className="text-sm font-bold bg-black text-white px-2 py-1 rounded">
              Slide {currentSlideIndex + 1} / {totalFiles || editedSlides.length}
           </span>
-          {/* Dim Toggle for checking extraction */}
+          {/* Toggle for Overlays */}
           <button 
-             onClick={() => setDimBackground(!dimBackground)}
-             className={`flex items-center gap-2 px-3 py-1.5 rounded border-2 border-black text-sm font-bold transition-all ${dimBackground ? 'bg-black text-white' : 'bg-white text-black hover:bg-gray-100'}`}
+             onClick={() => setShowOverlays(!showOverlays)}
+             className={`flex items-center gap-2 px-3 py-1.5 rounded border-2 border-black text-sm font-bold transition-all ${!showOverlays ? 'bg-black text-white' : 'bg-white text-black hover:bg-gray-100'}`}
+             title="Toggle Text Overlays"
           >
-             {dimBackground ? <EyeOff size={16}/> : <Eye size={16}/>}
-             {dimBackground ? 'Show Original' : 'Dim Background'}
+             {showOverlays ? <Eye size={16}/> : <EyeOff size={16}/>}
+             {showOverlays ? 'Hide Text Boxes' : 'Show Text Boxes'}
           </button>
         </div>
         <div className="flex gap-2 items-center">
@@ -178,7 +210,8 @@ export const PptxEditor: React.FC<PptxEditorProps> = ({ slides, totalFiles, onDo
                     backgroundImage: `url(${currentSlide.backgroundImage})`,
                     backgroundSize: '100% 100%', // Ensure exact fit
                     backgroundRepeat: 'no-repeat',
-                    opacity: dimBackground ? 0.3 : 1.0
+                    // Dim background slightly when overlays are on, to make text pop
+                    opacity: showOverlays ? 0.6 : 1.0 
                 }}
              />
 
@@ -186,24 +219,31 @@ export const PptxEditor: React.FC<PptxEditorProps> = ({ slides, totalFiles, onDo
              {currentSlide.elements.length === 0 && (
                  <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
                      <span className="bg-red-100 text-red-600 border border-red-400 px-3 py-1 rounded font-bold text-sm">
-                         No text/images extracted. Try checking the "Dim Background" to see the original.
+                         No text/images extracted.
                      </span>
                  </div>
              )}
 
              {currentSlide.elements.map(el => {
                  const isSelected = selectedElementId === el.id;
+                 const fontSize = getFontSize(el);
+                 const textColor = el.style?.color || '#000000';
+                 const bgColor = el.style?.bgColor || '#ffffff';
+                 
+                 // If overlays are hidden and element is not selected, hide it.
+                 // This allows viewing the original clean image.
+                 if (!showOverlays && !isSelected) return null;
+
                  return (
                     <div
                         key={el.id}
-                        // Click on wrapper triggers selection, unless it's already selected text (handled by textarea)
                         onClick={(e) => { 
                             e.stopPropagation(); 
                             if (!isSelected) setSelectedElementId(el.id); 
                         }}
                         className={`absolute transition-all group ${
                             isSelected 
-                            ? 'z-20' 
+                            ? 'z-[100]' // High z-index to ensure it sits on top of everything when editing
                             : 'z-10 hover:z-20'
                         }`}
                         style={{
@@ -217,23 +257,37 @@ export const PptxEditor: React.FC<PptxEditorProps> = ({ slides, totalFiles, onDo
                             isSelected ? (
                                 <textarea
                                     autoFocus
-                                    value={el.content}
+                                    value={el.content || ''} // Handle potentially undefined content
                                     onChange={(e) => updateElement(el.id, { content: e.target.value })}
-                                    className="w-full h-full resize-none bg-white p-2 text-sm focus:outline-none text-black border-2 border-blue-500 shadow-lg rounded"
+                                    className="w-full h-full resize-none p-1 border-2 border-blue-500 shadow-lg rounded leading-tight focus:outline-none focus:ring-2 focus:ring-blue-300 overflow-auto"
                                     style={{ 
-                                        fontSize: `${Math.max(12, (el.style?.fontSize || 12) * 1.3)}px`, 
-                                        lineHeight: '1.2'
+                                        fontSize: fontSize,
+                                        fontFamily: '"Pretendard", "Nanum Gothic", sans-serif', // Explicit font stack for Korean
+                                        color: textColor,
+                                        backgroundColor: bgColor
                                     }}
-                                    onClick={(e) => e.stopPropagation()} // Allow clicking inside textarea
-                                    onKeyDown={(e) => e.stopPropagation()} // Prevent global hotkeys
+                                    onClick={(e) => e.stopPropagation()} 
+                                    onKeyDown={(e) => e.stopPropagation()} 
+                                    spellCheck={false}
                                 />
                             ) : (
                                 <div 
-                                    className="w-full h-full p-1 border border-dashed border-blue-300/0 group-hover:border-blue-500 group-hover:bg-blue-50/20 cursor-pointer overflow-hidden whitespace-pre-wrap"
+                                    className={`w-full h-full p-0.5 border cursor-pointer overflow-hidden whitespace-pre-wrap transition-colors ${isSelected ? 'border-blue-500' : 'border-blue-300/50 hover:border-blue-500'}`}
                                     title="Click to edit text"
+                                    style={{ 
+                                        backgroundColor: bgColor 
+                                    }}
                                 >
-                                    {/* Invisible text filler to maintain layout structure if needed, or just visual indicator */}
-                                    <div className="w-full h-full bg-transparent" />
+                                    <div 
+                                        className="w-full h-full break-words leading-tight" 
+                                        style={{ 
+                                            fontSize: fontSize,
+                                            fontFamily: '"Pretendard", "Nanum Gothic", sans-serif',
+                                            color: textColor
+                                        }}
+                                    >
+                                        {el.content}
+                                    </div>
                                 </div>
                             )
                         ) : (
@@ -250,7 +304,7 @@ export const PptxEditor: React.FC<PptxEditorProps> = ({ slides, totalFiles, onDo
                         {isSelected && (
                             <button 
                                 onClick={(e) => { e.stopPropagation(); handleDelete(el.id); }}
-                                className="absolute -top-3 -right-3 bg-red-500 text-white rounded-full p-1.5 shadow hover:bg-red-600 z-30 flex items-center justify-center hover:scale-110 transition-transform"
+                                className="absolute -top-3 -right-3 bg-red-500 text-white rounded-full p-1.5 shadow hover:bg-red-600 z-[110] flex items-center justify-center hover:scale-110 transition-transform"
                                 title="Delete element"
                             >
                                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>

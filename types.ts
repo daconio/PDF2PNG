@@ -51,7 +51,7 @@ export interface PptxElement {
   style?: {
     fontSize?: number; // approx pt
     color?: string; // hex
-    bg?: string; // hex
+    bgColor?: string; // hex
     isBold?: boolean;
     align?: 'left' | 'center' | 'right';
   };
